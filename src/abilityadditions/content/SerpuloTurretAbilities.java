@@ -24,7 +24,6 @@ public class SerpuloTurretAbilities{
             movDeceleration = StatusEffects.slow;
         }
 
-        // Duo: Every 10 shots -> 3s rush with 1.5x dmg, 1.65x fire rate, 1.45x bullet speed, and mov damage-increase debuff
         manager.register(Blocks.duo, AbilityProfile.overdriveRush(
             "Overdrive Rush",
             AbilityTrigger.everyShots(10),
@@ -36,15 +35,12 @@ public class SerpuloTurretAbilities{
             4f
         ));
 
-        // Scatter: 10% chance per volley -> 2 missiles shatter into 12 snake mini-missiles + 4s Meltdown + mov deceleration
         manager.register(Blocks.scatter, AbilityProfile.missileSwarm(
             "Snake Swarm",
             AbilityTrigger.chancePerCycle(0.10f, 2.0f),
-            2,
             6,
-            1.5f,
-            0.55f,
-            4f,
+            1.4f,
+            2f,
             movDeceleration,
             3f
         ));
