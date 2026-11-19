@@ -5,6 +5,7 @@ import arc.Events;
 import arc.graphics.Color;
 import arc.math.Mathf;
 import arc.struct.IntMap;
+import arc.struct.IntSet;
 import arc.struct.ObjectMap;
 import arc.struct.Seq;
 import arc.util.Time;
@@ -13,14 +14,14 @@ import mindustry.entities.bullet.BasicBulletType;
 import mindustry.entities.bullet.BulletType;
 import mindustry.game.EventType;
 import mindustry.gen.Bullet;
+import mindustry.gen.Groups;
 import mindustry.graphics.Pal;
+import mindustry.ui.Bar;
 import mindustry.world.Block;
 import mindustry.world.blocks.defense.turrets.ItemTurret;
 import mindustry.world.blocks.defense.turrets.LiquidTurret;
 import mindustry.world.blocks.defense.turrets.PowerTurret;
 import mindustry.world.blocks.defense.turrets.Turret;
-import mindustry.world.meta.Stat;
-import mindustry.world.meta.StatCat;
 
 public class AbilityManager{
     private static final AbilityManager INSTANCE = new AbilityManager();
@@ -31,7 +32,8 @@ public class AbilityManager{
     private final Seq<EmpoweredBullet> empoweredList = new Seq<>();
     private final Seq<Integer> staleStateIds = new Seq<>();
 
-    private final Stat abilityStat = new Stat("ability", StatCat.function);
+    private IntSet seenBulletIds = new IntSet();
+    private IntSet nextSeenBulletIds = new IntSet();
     private boolean eventsRegistered = false;
 
     public static AbilityManager instance(){
@@ -48,8 +50,37 @@ public class AbilityManager{
         for(ObjectMap.Entry<Block, AbilityProfile> entry : blockAbilities.entries()){
             Block block = entry.key;
             AbilityProfile profile = entry.value;
-            block.checkStats();
-            block.stats.add(abilityStat, profile.statSummary());
+
+            String abilityText = "[accent]Ability[]\n" + profile.statSummary();
+            if(block.details == null || block.details.isEmpty()){
+                block.details = abilityText;
+            }else if(!block.details.contains(profile.abilityName)){
+                block.details = block.details + "\n\n" + abilityText;
+            }
+
+            block.addBar("ability", entity -> new Bar(
+                () -> {
+                    TurretState state = turretStates.get(entity.id);
+                    if(state != null && state.activeTimer > 0f){
+                        return profile.abilityName + ": " + String.format(java.util.Locale.US, "%.1fs", state.activeTimer / 60f);
+                    }
+                    return profile.abilityName + ": " + profile.trigger.barText(state);
+                },
+                () -> {
+                    TurretState state = turretStates.get(entity.id);
+                    if(state != null && state.activeTimer > 0f){
+                        return state.lastColor != null ? state.lastColor : Pal.accent;
+                    }
+                    return Pal.ammo;
+                },
+                () -> {
+                    TurretState state = turretStates.get(entity.id);
+                    if(state != null && state.activeTimer > 0f){
+                        return Mathf.clamp(state.activeTimer / profile.durationTicks);
+                    }
+                    return Mathf.clamp(profile.trigger.progress(state));
+                }
+            ));
         }
     }
 
@@ -58,38 +89,6 @@ public class AbilityManager{
         eventsRegistered = true;
 
         Events.on(EventType.WorldLoadEvent.class, e -> clearRuntimeState());
-
-        Events.on(EventType.BulletCreateEvent.class, e -> {
-            Bullet b = e.bullet;
-            if(b == null || !(b.owner instanceof Turret.TurretBuild turret)) return;
-
-            AbilityProfile profile = blockAbilities.get(turret.block);
-            if(profile == null) return;
-
-            if(!isPrimaryBullet(turret.block, b.type)) return;
-
-            TurretState state = turretStates.get(turret.id);
-            if(state == null){
-                state = new TurretState(turret, profile);
-                turretStates.put(turret.id, state);
-            }
-
-            if(state.activeTimer > 0f){
-                empowerBullet(b, profile);
-            }else if(profile.trigger.checkAndAdvance(state)){
-                state.activeTimer = profile.durationTicks;
-                turret.applyBoost(profile.fireRateMultiplier, profile.durationTicks);
-
-                Color waveColor = resolveBulletColor(b.type);
-                AbilityEffects.abilityActivate.at(turret.x, turret.y, 0f, waveColor);
-
-                if(turret.block instanceof Turret t && t.shootSound != null){
-                    t.shootSound.at(turret.x, turret.y, 1.35f, 0.85f);
-                }
-
-                empowerBullet(b, profile);
-            }
-        });
 
         Events.on(EventType.UnitDamageEvent.class, e -> {
             if(e.bullet == null || e.unit == null) return;
@@ -113,8 +112,50 @@ public class AbilityManager{
         Events.run(EventType.Trigger.update, this::updateRuntime);
     }
 
+    private void onBulletSpawned(Bullet b){
+        if(b == null || !(b.owner instanceof Turret.TurretBuild turret)) return;
+
+        AbilityProfile profile = blockAbilities.get(turret.block);
+        if(profile == null) return;
+
+        if(!isPrimaryBullet(turret.block, b.type)) return;
+
+        TurretState state = turretStates.get(turret.id);
+        if(state == null){
+            state = new TurretState(turret, profile);
+            turretStates.put(turret.id, state);
+        }
+
+        if(state.activeTimer > 0f){
+            empowerBullet(b, profile);
+        }else if(profile.trigger.checkAndAdvance(state)){
+            state.activeTimer = profile.durationTicks;
+            turret.applyBoost(profile.fireRateMultiplier, profile.durationTicks);
+
+            Color waveColor = resolveBulletColor(b.type);
+            AbilityEffects.abilityActivate.at(turret.x, turret.y, 0f, waveColor);
+
+            if(turret.block instanceof Turret t && t.shootSound != null){
+                t.shootSound.at(turret.x, turret.y, 1.35f, 0.85f);
+            }
+
+            empowerBullet(b, profile);
+        }
+    }
+
     private void updateRuntime(){
         if(Vars.state == null || Vars.state.isPaused()) return;
+
+        nextSeenBulletIds.clear();
+        for(Bullet b : Groups.bullet){
+            nextSeenBulletIds.add(b.id);
+            if(!seenBulletIds.contains(b.id)){
+                onBulletSpawned(b);
+            }
+        }
+        IntSet tmp = seenBulletIds;
+        seenBulletIds = nextSeenBulletIds;
+        nextSeenBulletIds = tmp;
 
         staleStateIds.clear();
         for(IntMap.Entry<TurretState> entry : turretStates.entries()){
@@ -229,6 +270,8 @@ public class AbilityManager{
         turretStates.clear();
         empoweredLookup.clear();
         empoweredList.clear();
+        seenBulletIds.clear();
+        nextSeenBulletIds.clear();
     }
 
     public static class TurretState{
@@ -257,4 +300,4 @@ public class AbilityManager{
             this.color = color;
         }
     }
-    } 
+    }
