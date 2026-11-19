@@ -8,7 +8,7 @@ name: "ability-additions"
 author: "KROZO"
 
 #the fully qualified main class of the mod (keep this until Code Time!)
-main: "example.ExampleJavaMod"
+main: "abilityadditions.AbilityAdditionsMod"
 
 #the mod description as seen in the mod dialog
 description: "Gives Serpulo and Erekir turrets (and later units) triggered abilities so defense feels like more than just spamming bullets. Built as an addon for Mindustry Overhaul, adding bonus damage, status debuffs, and flashy bullet-colored effects. (WIP)"
