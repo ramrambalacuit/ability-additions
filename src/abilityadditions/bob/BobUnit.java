@@ -77,7 +77,6 @@ public class BobUnit{
                 lightColor = Color.valueOf("d8f3ff");
                 lightRadius = 35f;
 
-                hidden = true;
                 isEnemy = false;
                 useUnitCap = false;
                 playerControllable = false;
@@ -104,7 +103,6 @@ public class BobUnit{
 
             @Override
             public void createIcons(MultiPacker packer){
-                // Uses Dagger's existing sprites; skip generating mod atlas icons
             }
 
             @Override
@@ -166,4 +164,4 @@ public class BobUnit{
             }
         };
     }
-                        }
+}
