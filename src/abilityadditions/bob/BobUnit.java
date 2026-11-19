@@ -1,5 +1,3 @@
-import arc.audio.Sound;
-import mindustry.Vars;
 package abilityadditions.bob;
 
 import abilityadditions.content.AbilityEffects;
@@ -8,6 +6,7 @@ import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.Fill;
 import arc.math.Angles;
 import arc.math.Mathf;
+import mindustry.Vars;
 import mindustry.content.StatusEffects;
 import mindustry.content.UnitTypes;
 import mindustry.entities.bullet.BasicBulletType;
@@ -91,7 +90,7 @@ public class BobUnit{
                     shootX = 0f;
                     shootY = 5f;
                     mirror = false;
-                    reload = 60f; // Minecraft Snow Golem: 1 snowball per second
+                    reload = 60f;
                     rotate = false;
                     inaccuracy = 4f;
                     shootSound = Vars.headless ? Sounds.none : Vars.tree.loadSound("snow");
@@ -129,7 +128,6 @@ public class BobUnit{
             public void draw(Unit unit){
                 super.draw(unit);
 
-                // Festive snowy tint & Christmas Santa-hat accent
                 Draw.z(Layer.groundUnit + 0.5f);
                 if(region != null && region.found()){
                     Draw.color(Color.valueOf("f0f9ff"), 0.72f);
@@ -147,7 +145,6 @@ public class BobUnit{
                 Draw.color(Color.white);
                 Fill.circle(tipX, tipY, 1.5f);
 
-                // Green holiday scarf dot
                 Draw.color(Color.valueOf("2ecc71"));
                 Fill.circle(
                     unit.x + Angles.trnsx(unit.rotation, 2.2f),
@@ -160,4 +157,4 @@ public class BobUnit{
             }
         };
     }
-                                               }
+} 
