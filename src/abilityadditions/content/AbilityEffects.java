@@ -10,7 +10,6 @@ import mindustry.entities.Effect;
 
 public class AbilityEffects{
 
-    // Pass block.size in rotation; scales automatically for 1x1, 2x2, 3x3, etc.
     public static final Effect abilityActivate = new Effect(22f, e -> {
         float size = Math.max(1f, e.rotation);
         float maxRad = 4.5f * size;
@@ -26,7 +25,6 @@ public class AbilityEffects{
         Draw.color();
     });
 
-    // Top sparks while Overdrive Rush is active; pass block.size in rotation
     public static final Effect activeTurretSpark = new Effect(18f, e -> {
         float size = Math.max(1f, e.rotation);
         Draw.color(e.color, Color.white, 0.45f);
@@ -36,7 +34,6 @@ public class AbilityEffects{
         Draw.color();
     });
 
-    // Overheat smoke puffs during Meltdown; pass block.size in rotation
     public static final Effect meltdownSmoke = new Effect(30f, e -> {
         float size = Math.max(1f, e.rotation);
         Draw.color(Color.darkGray, e.color, 0.25f * e.fout());
@@ -67,4 +64,40 @@ public class AbilityEffects{
         });
         Draw.color();
     });
-}
+
+    // Bob effects
+    public static final Effect bobSmoke = new Effect(24f, e -> {
+        Draw.color(Color.lightGray, Color.white, 0.5f);
+        Draw.alpha(0.55f * e.fout());
+        Angles.randLenVectors(e.id, 2, 2f + 6f * e.fin(), (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, 2.2f * e.fout());
+        });
+        Draw.color();
+    });
+
+    public static final Effect bobSweat = new Effect(22f, e -> {
+        Draw.color(Color.valueOf("6fd6ff"), Color.white, 0.35f);
+        Angles.randLenVectors(e.id, 2, 3f + 9f * e.fin(Interp.pow2Out), (x, y) -> {
+            Fill.circle(e.x + x, e.y + Math.abs(y) + 3f * e.fin() - 5f * e.fin(Interp.pow2In), 1.4f * e.fout());
+        });
+        Draw.color();
+    });
+
+    public static final Effect bobDash = new Effect(18f, e -> {
+        Draw.color(Color.white, Color.valueOf("b8ecff"), e.fin());
+        Lines.stroke(1.6f * e.fout());
+        Lines.circle(e.x, e.y, 2f + 11f * e.fin(Interp.pow2Out));
+        Angles.randLenVectors(e.id, 6, 3f + 12f * e.fin(), (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, 1.8f * e.fout());
+        });
+        Draw.color();
+    });
+
+    public static final Effect snowballHit = new Effect(16f, e -> {
+        Draw.color(Color.white, Color.valueOf("cfefff"), e.fin());
+        Angles.randLenVectors(e.id, 6, 2f + 10f * e.fin(Interp.pow2Out), (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, 1.7f * e.fout());
+        });
+        Draw.color();
+    });
+    }
