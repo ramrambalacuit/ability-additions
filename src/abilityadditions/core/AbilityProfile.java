@@ -16,9 +16,7 @@ public class AbilityProfile{
     public final float fireRateMultiplier;
     public final float bulletSpeedMultiplier;
     public final float meltdownTicks;
-    public final int parentMissiles;
-    public final int miniMissilesEach;
-    public final float miniDamageMultiplier;
+    public final int missileCount;
     public final StatusEffect debuff;
     public final float debuffDurationTicks;
 
@@ -31,9 +29,7 @@ public class AbilityProfile{
         float fireRateMultiplier,
         float bulletSpeedMultiplier,
         float meltdownSeconds,
-        int parentMissiles,
-        int miniMissilesEach,
-        float miniDamageMultiplier,
+        int missileCount,
         StatusEffect debuff,
         float debuffDurationSeconds
     ){
@@ -45,9 +41,7 @@ public class AbilityProfile{
         this.fireRateMultiplier = fireRateMultiplier;
         this.bulletSpeedMultiplier = bulletSpeedMultiplier;
         this.meltdownTicks = meltdownSeconds * 60f;
-        this.parentMissiles = parentMissiles;
-        this.miniMissilesEach = miniMissilesEach;
-        this.miniDamageMultiplier = miniDamageMultiplier;
+        this.missileCount = missileCount;
         this.debuff = debuff;
         this.debuffDurationTicks = debuffDurationSeconds * 60f;
     }
@@ -72,8 +66,6 @@ public class AbilityProfile{
             bulletSpeedMultiplier,
             0f,
             0,
-            0,
-            0f,
             debuff,
             debuffDurationSeconds
         );
@@ -82,10 +74,8 @@ public class AbilityProfile{
     public static AbilityProfile missileSwarm(
         String abilityName,
         AbilityTrigger trigger,
-        int parentMissiles,
-        int miniMissilesEach,
-        float parentDamageMultiplier,
-        float miniDamageMultiplier,
+        int missileCount,
+        float missileDamageMultiplier,
         float meltdownSeconds,
         StatusEffect debuff,
         float debuffDurationSeconds
@@ -95,13 +85,11 @@ public class AbilityProfile{
             abilityName,
             trigger,
             0f,
-            parentDamageMultiplier,
+            missileDamageMultiplier,
             1f,
             1f,
             meltdownSeconds,
-            parentMissiles,
-            miniMissilesEach,
-            miniDamageMultiplier,
+            missileCount,
             debuff,
             debuffDurationSeconds
         );
@@ -119,12 +107,11 @@ public class AbilityProfile{
                 sb.append("[lightgray]Fire Rate: []").append(formatNum(fireRateMultiplier)).append("x\n");
             }
         }else{
-            int totalMini = parentMissiles * miniMissilesEach;
-            sb.append("[lightgray]Burst: []").append(parentMissiles).append(" missiles -> ")
-                .append(totalMini).append(" snake mini-missiles\n");
-            sb.append("[lightgray]Missile Damage: []").append(formatNum(damageMultiplier)).append("x / ")
-                .append(formatNum(miniDamageMultiplier)).append("x\n");
-            sb.append("[scarlet]Meltdown: []Stops firing for ").append(formatNum(meltdownTicks / 60f)).append("s\n");
+            sb.append("[lightgray]Missiles: []").append(missileCount).append(" homing snake missiles\n");
+            sb.append("[lightgray]Damage: []").append(formatNum(damageMultiplier)).append("x\n");
+            if(meltdownTicks > 0f){
+                sb.append("[scarlet]Meltdown: []Stops firing for ").append(formatNum(meltdownTicks / 60f)).append("s\n");
+            }
         }
 
         if(debuff != null){
