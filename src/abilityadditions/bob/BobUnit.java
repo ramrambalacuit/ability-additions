@@ -14,6 +14,7 @@ import mindustry.game.Team;
 import mindustry.gen.Sounds;
 import mindustry.gen.Unit;
 import mindustry.graphics.Layer;
+import mindustry.graphics.MultiPacker;
 import mindustry.type.UnitType;
 import mindustry.type.Weapon;
 
@@ -76,6 +77,7 @@ public class BobUnit{
                 lightColor = Color.valueOf("d8f3ff");
                 lightRadius = 35f;
 
+                hidden = true;
                 isEnemy = false;
                 useUnitCap = false;
                 playerControllable = false;
@@ -101,6 +103,11 @@ public class BobUnit{
             }
 
             @Override
+            public void createIcons(MultiPacker packer){
+                // Uses Dagger's existing sprites; skip generating mod atlas icons
+            }
+
+            @Override
             public void load(){
                 super.load();
                 if(UnitTypes.dagger != null){
@@ -111,6 +118,8 @@ public class BobUnit{
                     outlineRegion = UnitTypes.dagger.outlineRegion;
                     shadowRegion = UnitTypes.dagger.shadowRegion;
                     previewRegion = UnitTypes.dagger.previewRegion;
+                    fullIcon = UnitTypes.dagger.fullIcon;
+                    uiIcon = UnitTypes.dagger.uiIcon;
                 }
             }
 
@@ -157,4 +166,4 @@ public class BobUnit{
             }
         };
     }
-} 
+                        }
