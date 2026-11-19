@@ -56,6 +56,32 @@ public interface AbilityTrigger{
             public String describe(){
                 return Math.round(probability * 100f) + "% chance per shot";
             }
+
+            @Override
+            public String barText(AbilityManager.TurretState state){
+                return Math.round(probability * 100f) + "% chance";
+            }
+        };
+    }
+
+    static AbilityTrigger chancePerCycle(float probability, float cycleCooldownSeconds){
+        return new AbilityTrigger(){
+            @Override
+            public boolean checkAndAdvance(AbilityManager.TurretState state){
+                if(state.triggerCooldown > 0f) return false;
+                state.triggerCooldown = cycleCooldownSeconds * 60f;
+                return Mathf.chance(probability);
+            }
+
+            @Override
+            public String describe(){
+                return Math.round(probability * 100f) + "% chance per volley";
+            }
+
+            @Override
+            public String barText(AbilityManager.TurretState state){
+                return Math.round(probability * 100f) + "% / volley";
+            }
         };
     }
 
