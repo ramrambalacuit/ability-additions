@@ -7,6 +7,14 @@ public interface AbilityTrigger{
 
     String describe();
 
+    default float progress(AbilityManager.TurretState state){
+        return 0f;
+    }
+
+    default String barText(AbilityManager.TurretState state){
+        return describe();
+    }
+
     static AbilityTrigger everyShots(int requiredShots){
         return new AbilityTrigger(){
             @Override
@@ -22,6 +30,17 @@ public interface AbilityTrigger{
             @Override
             public String describe(){
                 return "Every " + requiredShots + " shots";
+            }
+
+            @Override
+            public float progress(AbilityManager.TurretState state){
+                return state == null ? 0f : (float)state.shotCount / requiredShots;
+            }
+
+            @Override
+            public String barText(AbilityManager.TurretState state){
+                int count = state == null ? 0 : state.shotCount;
+                return count + "/" + requiredShots;
             }
         };
     }
@@ -56,6 +75,17 @@ public interface AbilityTrigger{
             public String describe(){
                 return Math.round(probability * 100f) + "% chance (guaranteed every " + maxShots + " shots)";
             }
+
+            @Override
+            public float progress(AbilityManager.TurretState state){
+                return state == null ? 0f : (float)state.shotCount / maxShots;
+            }
+
+            @Override
+            public String barText(AbilityManager.TurretState state){
+                int count = state == null ? 0 : state.shotCount;
+                return count + "/" + maxShots;
+            }
         };
     }
-} 
+}
