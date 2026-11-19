@@ -14,7 +14,7 @@ import arc.struct.ObjectMap;
 import arc.struct.Seq;
 import arc.util.Time;
 import mindustry.Vars;
-import mindustry.entities.Fx;
+import mindustry.content.Fx;
 import mindustry.entities.bullet.BasicBulletType;
 import mindustry.entities.bullet.BulletType;
 import mindustry.entities.bullet.MissileBulletType;
@@ -226,7 +226,7 @@ public class AbilityManager{
         mini.backColor = ammoColor;
         mini.trailColor = ammoColor;
         mini.lightColor = bright;
-        mini.trailLength = 7f;
+        mini.trailLength = 7;
         mini.trailWidth = 1.4f;
         mini.hitEffect = AbilityEffects.empoweredHit;
         mini.despawnEffect = Fx.none;
@@ -257,7 +257,7 @@ public class AbilityManager{
         parent.backColor = ammoColor;
         parent.trailColor = ammoColor;
         parent.lightColor = bright;
-        parent.trailLength = 9f;
+        parent.trailLength = 9;
         parent.trailWidth = 2f;
         parent.hitEffect = AbilityEffects.empoweredHit;
         parent.despawnEffect = AbilityEffects.empoweredHit;
@@ -300,14 +300,12 @@ public class AbilityManager{
                 state.build.reloadCounter = 0f;
                 if(state.meltdownTimer <= 0f){
                     state.meltdownTimer = 0f;
-                    state.build.timeScale = 1f;
-                    state.build.timeScaleDuration = 0f;
                 }else{
-                    state.build.applySlowdown(0.01f, Math.max(2f, state.meltdownTimer));
+                    state.build.applySlowdown(0.01f, 2f);
                     state.sparkTimer += Time.delta;
                     if(state.sparkTimer >= 12f){
                         state.sparkTimer = 0f;
-                        Color smokeTint = state.lastColor != null ? state.lastColor : Pal.slag;
+                        Color smokeTint = state.lastColor != null ? state.lastColor : Pal.remove;
                         AbilityEffects.meltdownSmoke.at(
                             state.build.x + Mathf.range(state.build.block.size * 2.5f),
                             state.build.y + Mathf.range(state.build.block.size * 2.5f),
@@ -384,7 +382,7 @@ public class AbilityManager{
                 Draw.rect(turret.block.region, turret.x, turret.y, turret.drawrot());
             }
 
-            Color glow = state.lastColor != null ? state.lastColor : Pal.slag;
+            Color glow = state.lastColor != null ? state.lastColor : Pal.remove;
             Draw.color(glow, 0.15f + 0.22f * pulse);
             Fill.circle(turret.x, turret.y, turret.block.size * (2.2f + 0.7f * pulse));
 
@@ -501,4 +499,4 @@ public class AbilityManager{
             this.mini = mini;
         }
     }
-            }
+                }
