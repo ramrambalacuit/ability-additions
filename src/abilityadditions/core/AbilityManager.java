@@ -6,7 +6,6 @@ import arc.graphics.Color;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.Fill;
 import arc.graphics.g2d.Lines;
-import arc.math.Angles;
 import arc.math.Mathf;
 import arc.struct.IntMap;
 import arc.struct.IntSet;
@@ -178,7 +177,7 @@ public class AbilityManager{
                     t.shootSound.at(turret.x, turret.y, 0.78f, 1.0f);
                 }
 
-                spawnMissileSwarm(turret, b.type, profile, waveColor);
+                spawnMissileSwarm(turret, b, profile, waveColor);
 
                 turret.reloadCounter = 0f;
                 turret.applySlowdown(0.01f, profile.meltdownTicks);
@@ -186,17 +185,16 @@ public class AbilityManager{
         }
     }
 
-    private void spawnMissileSwarm(Turret.TurretBuild turret, BulletType sourceAmmo, AbilityProfile profile, Color ammoColor){
+    private void spawnMissileSwarm(Turret.TurretBuild turret, Bullet triggerBullet, AbilityProfile profile, Color ammoColor){
+        BulletType sourceAmmo = triggerBullet.type;
         MissilePair pair = getOrCreateMissilePair(sourceAmmo, profile, ammoColor);
-        float muzzleOffset = turret.block.size * Vars.tilesize * 0.45f;
-        float mx = turret.x + Angles.trnsx(turret.rotation, muzzleOffset);
-        float my = turret.y + Angles.trnsy(turret.rotation, muzzleOffset);
 
+        float baseAngle = triggerBullet.rotation();
         int count = Math.max(1, profile.parentMissiles);
-        float spread = 24f;
+        float spread = 20f;
         for(int i = 0; i < count; i++){
             float offsetAngle = count == 1 ? 0f : Mathf.lerp(-spread * 0.5f, spread * 0.5f, (float)i / (count - 1));
-            pair.parent.create(turret, turret.team, mx, my, turret.rotation + offsetAngle);
+            pair.parent.create(turret, turret.team, triggerBullet.x, triggerBullet.y, baseAngle + offsetAngle);
         }
     }
 
@@ -207,58 +205,59 @@ public class AbilityManager{
         Color bright = ammoColor.cpy().lerp(Color.white, 0.45f);
         boolean airOnly = !sourceAmmo.collidesGround;
 
-        MissileBulletType mini = new MissileBulletType(4.6f, Math.max(4f, sourceAmmo.damage * profile.miniDamageMultiplier));
-        mini.width = 6f;
-        mini.height = 10f;
-        mini.lifetime = 48f;
-        mini.homingPower = 0.09f;
-        mini.homingRange = 140f;
-        mini.homingDelay = 3f;
-        mini.weaveScale = 4.5f;
-        mini.weaveMag = 3.8f;
+        MissileBulletType mini = new MissileBulletType(6.5f, Math.max(5f, sourceAmmo.damage * profile.miniDamageMultiplier));
+        mini.width = 8f;
+        mini.height = 13f;
+        mini.lifetime = 55f;
+        mini.homingPower = 0.22f;
+        mini.homingRange = 280f;
+        mini.homingDelay = 2f;
+        mini.weaveScale = 5f;
+        mini.weaveMag = 4f;
         mini.collidesGround = !airOnly;
         mini.collidesAir = sourceAmmo.collidesAir;
-        mini.splashDamageRadius = Math.max(12f, sourceAmmo.splashDamageRadius * 0.65f);
-        mini.splashDamage = Math.max(5f, sourceAmmo.splashDamage * 0.45f);
+        mini.splashDamageRadius = Math.max(14f, sourceAmmo.splashDamageRadius * 0.7f);
+        mini.splashDamage = Math.max(6f, sourceAmmo.splashDamage * 0.5f);
         mini.status = profile.debuff;
         mini.statusDuration = profile.debuffDurationTicks;
         mini.frontColor = bright;
         mini.backColor = ammoColor;
         mini.trailColor = ammoColor;
         mini.lightColor = bright;
-        mini.trailLength = 7;
-        mini.trailWidth = 1.4f;
+        mini.trailLength = 9;
+        mini.trailWidth = 1.6f;
         mini.hitEffect = AbilityEffects.empoweredHit;
         mini.despawnEffect = Fx.none;
         mini.init();
         if(!Vars.headless) mini.load();
 
-        MissileBulletType parent = new MissileBulletType(6.2f, Math.max(10f, sourceAmmo.damage * profile.damageMultiplier));
-        parent.width = 9f;
-        parent.height = 14f;
-        parent.lifetime = 22f;
-        parent.homingPower = 0.05f;
-        parent.homingRange = 160f;
-        parent.weaveScale = 3.2f;
-        parent.weaveMag = 1.8f;
+        MissileBulletType parent = new MissileBulletType(7.5f, Math.max(12f, sourceAmmo.damage * profile.damageMultiplier));
+        parent.width = 12f;
+        parent.height = 18f;
+        parent.lifetime = 45f;
+        parent.homingPower = 0.14f;
+        parent.homingRange = 360f;
+        parent.homingDelay = 1f;
+        parent.weaveScale = 4f;
+        parent.weaveMag = 2.5f;
         parent.collidesGround = !airOnly;
         parent.collidesAir = sourceAmmo.collidesAir;
-        parent.splashDamageRadius = Math.max(16f, sourceAmmo.splashDamageRadius * 0.85f);
-        parent.splashDamage = Math.max(8f, sourceAmmo.splashDamage * 0.7f);
+        parent.splashDamageRadius = Math.max(18f, sourceAmmo.splashDamageRadius * 0.9f);
+        parent.splashDamage = Math.max(10f, sourceAmmo.splashDamage * 0.75f);
         parent.status = profile.debuff;
         parent.statusDuration = profile.debuffDurationTicks;
         parent.fragBullets = profile.miniMissilesEach;
         parent.fragBullet = mini;
-        parent.fragSpread = 18f;
-        parent.fragRandomSpread = 45f;
-        parent.fragVelocityMin = 0.75f;
-        parent.fragVelocityMax = 1.25f;
+        parent.fragSpread = 12f;
+        parent.fragRandomSpread = 20f;
+        parent.fragVelocityMin = 0.85f;
+        parent.fragVelocityMax = 1.15f;
         parent.frontColor = bright;
         parent.backColor = ammoColor;
         parent.trailColor = ammoColor;
         parent.lightColor = bright;
-        parent.trailLength = 9;
-        parent.trailWidth = 2f;
+        parent.trailLength = 12;
+        parent.trailWidth = 2.4f;
         parent.hitEffect = AbilityEffects.empoweredHit;
         parent.despawnEffect = AbilityEffects.empoweredHit;
         parent.init();
@@ -499,4 +498,4 @@ public class AbilityManager{
             this.mini = mini;
         }
     }
-                }
+    }
