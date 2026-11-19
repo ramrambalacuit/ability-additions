@@ -13,7 +13,6 @@ import arc.struct.ObjectMap;
 import arc.struct.Seq;
 import arc.util.Time;
 import mindustry.Vars;
-import mindustry.content.Fx;
 import mindustry.entities.bullet.BasicBulletType;
 import mindustry.entities.bullet.BulletType;
 import mindustry.entities.bullet.MissileBulletType;
@@ -34,7 +33,7 @@ public class AbilityManager{
     private static final AbilityManager INSTANCE = new AbilityManager();
 
     private final ObjectMap<Block, AbilityProfile> blockAbilities = new ObjectMap<>();
-    private final ObjectMap<BulletType, MissilePair> missileCache = new ObjectMap<>();
+    private final ObjectMap<BulletType, MissileBulletType> missileCache = new ObjectMap<>();
     private final IntMap<TurretState> turretStates = new IntMap<>();
     private final IntMap<EmpoweredBullet> empoweredLookup = new IntMap<>();
     private final Seq<EmpoweredBullet> empoweredList = new Seq<>();
@@ -72,6 +71,9 @@ public class AbilityManager{
                     if(state != null && state.meltdownTimer > 0f){
                         return "Meltdown: " + String.format(java.util.Locale.US, "%.1fs", state.meltdownTimer / 60f);
                     }
+                    if(state != null && state.missileShotsRemaining > 0){
+                        return profile.abilityName + ": " + state.missileShotsRemaining + "/" + profile.missileCount;
+                    }
                     if(state != null && state.activeTimer > 0f){
                         return profile.abilityName + ": " + String.format(java.util.Locale.US, "%.1fs", state.activeTimer / 60f);
                     }
@@ -82,7 +84,7 @@ public class AbilityManager{
                     if(state != null && state.meltdownTimer > 0f){
                         return Pal.remove;
                     }
-                    if(state != null && state.activeTimer > 0f){
+                    if(state != null && (state.activeTimer > 0f || state.missileShotsRemaining > 0)){
                         return state.lastColor != null ? state.lastColor : Pal.accent;
                     }
                     return Pal.ammo;
@@ -91,6 +93,9 @@ public class AbilityManager{
                     TurretState state = turretStates.get(entity.id);
                     if(state != null && state.meltdownTimer > 0f){
                         return Mathf.clamp(state.meltdownTimer / profile.meltdownTicks);
+                    }
+                    if(state != null && state.missileShotsRemaining > 0){
+                        return Mathf.clamp((float)state.missileShotsRemaining / profile.missileCount);
                     }
                     if(state != null && state.activeTimer > 0f){
                         return Mathf.clamp(state.activeTimer / profile.durationTicks);
@@ -167,105 +172,77 @@ public class AbilityManager{
                 empowerBullet(b, profile);
             }
         }else if(profile.mode == AbilityProfile.Mode.MISSILE_SWARM){
-            if(profile.trigger.checkAndAdvance(state)){
+            if(state.missileShotsRemaining > 0){
+                convertToSnakeMissile(turret, b, profile, state);
+            }else if(profile.trigger.checkAndAdvance(state)){
                 Color waveColor = resolveBulletColor(b.type);
                 state.lastColor = waveColor;
-                state.meltdownTimer = profile.meltdownTicks;
+                state.missileShotsRemaining = Math.max(1, profile.missileCount);
 
                 AbilityEffects.abilityActivate.at(turret.x, turret.y, turret.block.size, waveColor);
                 if(turret.block instanceof Turret t && t.shootSound != null){
-                    t.shootSound.at(turret.x, turret.y, 0.78f, 1.0f);
+                    t.shootSound.at(turret.x, turret.y, 0.85f, 0.9f);
                 }
 
-                spawnMissileSwarm(turret, b, profile, waveColor);
-
-                turret.reloadCounter = 0f;
-                turret.applySlowdown(0.01f, profile.meltdownTicks);
+                convertToSnakeMissile(turret, b, profile, state);
             }
         }
     }
 
-    private void spawnMissileSwarm(Turret.TurretBuild turret, Bullet triggerBullet, AbilityProfile profile, Color ammoColor){
-        BulletType sourceAmmo = triggerBullet.type;
-        MissilePair pair = getOrCreateMissilePair(sourceAmmo, profile, ammoColor);
+    private void convertToSnakeMissile(Turret.TurretBuild turret, Bullet triggerBullet, AbilityProfile profile, TurretState state){
+        Color ammoColor = resolveBulletColor(triggerBullet.type);
+        state.lastColor = ammoColor;
 
-        float baseAngle = triggerBullet.rotation();
-        int count = Math.max(1, profile.parentMissiles);
-        float spread = 20f;
-        for(int i = 0; i < count; i++){
-            float offsetAngle = count == 1 ? 0f : Mathf.lerp(-spread * 0.5f, spread * 0.5f, (float)i / (count - 1));
-            pair.parent.create(turret, turret.team, triggerBullet.x, triggerBullet.y, baseAngle + offsetAngle);
+        MissileBulletType missile = getOrCreateSnakeMissile(triggerBullet.type, profile, ammoColor);
+        missile.create(turret, turret.team, triggerBullet.x, triggerBullet.y, triggerBullet.rotation());
+
+        triggerBullet.damage = 0f;
+        triggerBullet.remove();
+
+        state.missileShotsRemaining--;
+        if(state.missileShotsRemaining <= 0 && profile.meltdownTicks > 0f){
+            state.missileShotsRemaining = 0;
+            state.meltdownTimer = profile.meltdownTicks;
+            turret.reloadCounter = 0f;
+            turret.applySlowdown(0.01f, profile.meltdownTicks);
         }
     }
 
-    private MissilePair getOrCreateMissilePair(BulletType sourceAmmo, AbilityProfile profile, Color ammoColor){
-        MissilePair existing = missileCache.get(sourceAmmo);
+    private MissileBulletType getOrCreateSnakeMissile(BulletType sourceAmmo, AbilityProfile profile, Color ammoColor){
+        MissileBulletType existing = missileCache.get(sourceAmmo);
         if(existing != null) return existing;
 
         Color bright = ammoColor.cpy().lerp(Color.white, 0.45f);
         boolean airOnly = !sourceAmmo.collidesGround;
 
-        MissileBulletType mini = new MissileBulletType(6.5f, Math.max(5f, sourceAmmo.damage * profile.miniDamageMultiplier));
-        mini.width = 8f;
-        mini.height = 13f;
-        mini.lifetime = 55f;
-        mini.homingPower = 0.22f;
-        mini.homingRange = 280f;
-        mini.homingDelay = 2f;
-        mini.weaveScale = 5f;
-        mini.weaveMag = 4f;
-        mini.collidesGround = !airOnly;
-        mini.collidesAir = sourceAmmo.collidesAir;
-        mini.splashDamageRadius = Math.max(14f, sourceAmmo.splashDamageRadius * 0.7f);
-        mini.splashDamage = Math.max(6f, sourceAmmo.splashDamage * 0.5f);
-        mini.status = profile.debuff;
-        mini.statusDuration = profile.debuffDurationTicks;
-        mini.frontColor = bright;
-        mini.backColor = ammoColor;
-        mini.trailColor = ammoColor;
-        mini.lightColor = bright;
-        mini.trailLength = 9;
-        mini.trailWidth = 1.6f;
-        mini.hitEffect = AbilityEffects.empoweredHit;
-        mini.despawnEffect = Fx.none;
-        mini.init();
-        if(!Vars.headless) mini.load();
+        MissileBulletType missile = new MissileBulletType(7.2f, Math.max(10f, sourceAmmo.damage * profile.damageMultiplier));
+        missile.width = 10f;
+        missile.height = 16f;
+        missile.lifetime = 54f;
+        missile.homingPower = 0.20f;
+        missile.homingRange = 360f;
+        missile.homingDelay = 1f;
+        missile.weaveScale = 4.8f;
+        missile.weaveMag = 3.6f;
+        missile.collidesGround = !airOnly;
+        missile.collidesAir = sourceAmmo.collidesAir;
+        missile.splashDamageRadius = Math.max(18f, sourceAmmo.splashDamageRadius * 0.9f);
+        missile.splashDamage = Math.max(8f, sourceAmmo.splashDamage * 0.8f);
+        missile.status = profile.debuff;
+        missile.statusDuration = profile.debuffDurationTicks;
+        missile.frontColor = bright;
+        missile.backColor = ammoColor;
+        missile.trailColor = ammoColor;
+        missile.lightColor = bright;
+        missile.trailLength = 10;
+        missile.trailWidth = 2.0f;
+        missile.hitEffect = AbilityEffects.empoweredHit;
+        missile.despawnEffect = AbilityEffects.empoweredHit;
+        missile.init();
+        if(!Vars.headless) missile.load();
 
-        MissileBulletType parent = new MissileBulletType(7.5f, Math.max(12f, sourceAmmo.damage * profile.damageMultiplier));
-        parent.width = 12f;
-        parent.height = 18f;
-        parent.lifetime = 45f;
-        parent.homingPower = 0.14f;
-        parent.homingRange = 360f;
-        parent.homingDelay = 1f;
-        parent.weaveScale = 4f;
-        parent.weaveMag = 2.5f;
-        parent.collidesGround = !airOnly;
-        parent.collidesAir = sourceAmmo.collidesAir;
-        parent.splashDamageRadius = Math.max(18f, sourceAmmo.splashDamageRadius * 0.9f);
-        parent.splashDamage = Math.max(10f, sourceAmmo.splashDamage * 0.75f);
-        parent.status = profile.debuff;
-        parent.statusDuration = profile.debuffDurationTicks;
-        parent.fragBullets = profile.miniMissilesEach;
-        parent.fragBullet = mini;
-        parent.fragSpread = 12f;
-        parent.fragRandomSpread = 20f;
-        parent.fragVelocityMin = 0.85f;
-        parent.fragVelocityMax = 1.15f;
-        parent.frontColor = bright;
-        parent.backColor = ammoColor;
-        parent.trailColor = ammoColor;
-        parent.lightColor = bright;
-        parent.trailLength = 12;
-        parent.trailWidth = 2.4f;
-        parent.hitEffect = AbilityEffects.empoweredHit;
-        parent.despawnEffect = AbilityEffects.empoweredHit;
-        parent.init();
-        if(!Vars.headless) parent.load();
-
-        MissilePair pair = new MissilePair(parent, mini);
-        missileCache.put(sourceAmmo, pair);
-        return pair;
+        missileCache.put(sourceAmmo, missile);
+        return missile;
     }
 
     private void updateRuntime(){
@@ -302,7 +279,7 @@ public class AbilityManager{
                 }else{
                     state.build.applySlowdown(0.01f, 2f);
                     state.sparkTimer += Time.delta;
-                    if(state.sparkTimer >= 12f){
+                    if(state.sparkTimer >= 10f){
                         state.sparkTimer = 0f;
                         Color smokeTint = state.lastColor != null ? state.lastColor : Pal.remove;
                         AbilityEffects.meltdownSmoke.at(
@@ -361,7 +338,7 @@ public class AbilityManager{
     private void drawRuntime(){
         if(Vars.headless || Vars.state == null || turretStates.size == 0) return;
 
-        float pulse = 0.5f + 0.5f * Mathf.sin(Time.time * 0.22f);
+        float pulse = 0.5f + 0.5f * Mathf.sin(Time.time * 0.25f);
         for(IntMap.Entry<TurretState> entry : turretStates.entries()){
             TurretState state = entry.value;
             if(state.meltdownTimer <= 0f || state.build == null || !state.build.isValid()) continue;
@@ -464,6 +441,7 @@ public class AbilityManager{
         public final Turret.TurretBuild build;
         public final AbilityProfile profile;
         public int shotCount = 0;
+        public int missileShotsRemaining = 0;
         public float triggerCooldown = 0f;
         public float activeTimer = 0f;
         public float meltdownTimer = 0f;
@@ -488,14 +466,4 @@ public class AbilityManager{
             this.color = color;
         }
     }
-
-    private static class MissilePair{
-        final MissileBulletType parent;
-        final MissileBulletType mini;
-
-        MissilePair(MissileBulletType parent, MissileBulletType mini){
-            this.parent = parent;
-            this.mini = mini;
-        }
-    }
-    }
+            }
