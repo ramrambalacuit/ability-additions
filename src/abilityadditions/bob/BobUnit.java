@@ -1,3 +1,5 @@
+import arc.audio.Sound;
+import mindustry.Vars;
 package abilityadditions.bob;
 
 import abilityadditions.content.AbilityEffects;
@@ -92,7 +94,7 @@ public class BobUnit{
                     reload = 60f; // Minecraft Snow Golem: 1 snowball per second
                     rotate = false;
                     inaccuracy = 4f;
-                    shootSound = Sounds.snow;
+                    shootSound = Vars.headless ? Sounds.none : Vars.tree.loadSound("snow");
                     showStatSprite = false;
                     bullet = snowballBullet;
                 }};
