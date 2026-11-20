@@ -59,7 +59,7 @@ public class BobAI extends AIController{
     private final IntQueue bfsQueue = new IntQueue();
     private final IntIntMap bfsParent = new IntIntMap();
 
-    public boolean isSmokeInvisible(){
+    public boolean isSmokeCloaked(){
         return smokeBombTimer > 0f;
     }
 
