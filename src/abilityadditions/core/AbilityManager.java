@@ -6,6 +6,7 @@ import arc.graphics.Color;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.Fill;
 import arc.graphics.g2d.Lines;
+import arc.math.Angles;
 import arc.math.Mathf;
 import arc.struct.IntMap;
 import arc.struct.IntSet;
@@ -13,12 +14,15 @@ import arc.struct.ObjectMap;
 import arc.struct.Seq;
 import arc.util.Time;
 import mindustry.Vars;
+import mindustry.entities.Units;
 import mindustry.entities.bullet.BasicBulletType;
 import mindustry.entities.bullet.BulletType;
+import mindustry.entities.bullet.LightningBulletType;
 import mindustry.entities.bullet.MissileBulletType;
 import mindustry.game.EventType;
 import mindustry.gen.Bullet;
 import mindustry.gen.Groups;
+import mindustry.gen.Unit;
 import mindustry.graphics.Layer;
 import mindustry.graphics.Pal;
 import mindustry.ui.Bar;
@@ -38,6 +42,7 @@ public class AbilityManager{
     private final IntMap<EmpoweredBullet> empoweredLookup = new IntMap<>();
     private final Seq<EmpoweredBullet> empoweredList = new Seq<>();
     private final Seq<Integer> staleStateIds = new Seq<>();
+    private final Seq<Unit> chainCandidates = new Seq<>();
 
     private IntSet seenBulletIds = new IntSet();
     private IntSet nextSeenBulletIds = new IntSet();
@@ -71,8 +76,9 @@ public class AbilityManager{
                     if(state != null && state.meltdownTimer > 0f){
                         return "Meltdown: " + String.format(java.util.Locale.US, "%.1fs", state.meltdownTimer / 60f);
                     }
-                    if(state != null && state.missileShotsRemaining > 0){
-                        return profile.abilityName + ": " + state.missileShotsRemaining + "/" + profile.missileCount;
+                    if(profile.mode == AbilityProfile.Mode.HEAT_RAMP){
+                        int pct = state == null ? 0 : Math.round(state.heat * 100f);
+                        return "Heat: " + pct + "%";
                     }
                     if(state != null && state.activeTimer > 0f){
                         return profile.abilityName + ": " + String.format(java.util.Locale.US, "%.1fs", state.activeTimer / 60f);
@@ -84,7 +90,11 @@ public class AbilityManager{
                     if(state != null && state.meltdownTimer > 0f){
                         return Pal.remove;
                     }
-                    if(state != null && (state.activeTimer > 0f || state.missileShotsRemaining > 0)){
+                    if(profile.mode == AbilityProfile.Mode.HEAT_RAMP){
+                        float h = state == null ? 0f : state.heat;
+                        return h >= 0.6f ? Pal.remove : (state != null && state.lastColor != null ? state.lastColor : Pal.accent);
+                    }
+                    if(state != null && state.activeTimer > 0f){
                         return state.lastColor != null ? state.lastColor : Pal.accent;
                     }
                     return Pal.ammo;
@@ -94,8 +104,8 @@ public class AbilityManager{
                     if(state != null && state.meltdownTimer > 0f){
                         return Mathf.clamp(state.meltdownTimer / profile.meltdownTicks);
                     }
-                    if(state != null && state.missileShotsRemaining > 0){
-                        return Mathf.clamp((float)state.missileShotsRemaining / profile.missileCount);
+                    if(profile.mode == AbilityProfile.Mode.HEAT_RAMP){
+                        return state == null ? 0f : Mathf.clamp(state.heat);
                     }
                     if(state != null && state.activeTimer > 0f){
                         return Mathf.clamp(state.activeTimer / profile.durationTicks);
@@ -117,10 +127,15 @@ public class AbilityManager{
             EmpoweredBullet eb = empoweredLookup.get(e.bullet.id);
             if(eb == null) return;
 
-            if(eb.profile.debuff != null){
+            if(eb.profile.debuff != null && eb.applyDebuff){
                 e.unit.apply(eb.profile.debuff, eb.profile.debuffDurationTicks);
             }
             AbilityEffects.empoweredHit.at(e.bullet.x, e.bullet.y, e.bullet.rotation(), eb.color);
+
+            if(eb.profile.mode == AbilityProfile.Mode.SEISMIC_MORTAR && !eb.impactTriggered){
+                eb.impactTriggered = true;
+                triggerSeismicPull(e.bullet.x, e.bullet.y, e.bullet.team, eb.profile, eb.color);
+            }
         });
 
         Events.on(EventType.BuildDamageEvent.class, e -> {
@@ -129,6 +144,11 @@ public class AbilityManager{
             if(eb == null) return;
 
             AbilityEffects.empoweredHit.at(e.source.x, e.source.y, e.source.rotation(), eb.color);
+
+            if(eb.profile.mode == AbilityProfile.Mode.SEISMIC_MORTAR && !eb.impactTriggered){
+                eb.impactTriggered = true;
+                triggerSeismicPull(e.source.x, e.source.y, e.source.team, eb.profile, eb.color);
+            }
         });
 
         Events.run(EventType.Trigger.update, this::updateRuntime);
@@ -157,7 +177,7 @@ public class AbilityManager{
 
         if(profile.mode == AbilityProfile.Mode.OVERDRIVE_RUSH){
             if(state.activeTimer > 0f){
-                empowerBullet(b, profile);
+                empowerBullet(b, profile, true);
             }else if(profile.trigger.checkAndAdvance(state)){
                 state.activeTimer = profile.durationTicks;
                 turret.applyBoost(profile.fireRateMultiplier, profile.durationTicks);
@@ -169,15 +189,16 @@ public class AbilityManager{
                     t.shootSound.at(turret.x, turret.y, 1.35f, 0.85f);
                 }
 
-                empowerBullet(b, profile);
+                empowerBullet(b, profile, true);
             }
         }else if(profile.mode == AbilityProfile.Mode.MISSILE_SWARM){
-            if(state.missileShotsRemaining > 0){
+            if(state.activeTimer > 0f){
                 convertToSnakeMissile(turret, b, profile, state);
             }else if(profile.trigger.checkAndAdvance(state)){
                 Color waveColor = resolveBulletColor(b.type);
                 state.lastColor = waveColor;
-                state.missileShotsRemaining = Math.max(1, profile.missileCount);
+                state.activeTimer = profile.durationTicks;
+                state.pendingMeltdown = profile.meltdownTicks > 0f;
 
                 AbilityEffects.abilityActivate.at(turret.x, turret.y, turret.block.size, waveColor);
                 if(turret.block instanceof Turret t && t.shootSound != null){
@@ -186,7 +207,102 @@ public class AbilityManager{
 
                 convertToSnakeMissile(turret, b, profile, state);
             }
+        }else if(profile.mode == AbilityProfile.Mode.CHAIN_LIGHTNING){
+            if(profile.trigger.checkAndAdvance(state)){
+                Color arcColor = resolveBulletColor(b.type);
+                state.lastColor = arcColor;
+                b.damage *= profile.damageMultiplier;
+                AbilityEffects.abilityActivate.at(turret.x, turret.y, turret.block.size, arcColor);
+                triggerChainLightning(turret, b, profile, arcColor);
+            }
+        }else if(profile.mode == AbilityProfile.Mode.SEISMIC_MORTAR){
+            if(profile.trigger.checkAndAdvance(state)){
+                Color mortarColor = resolveBulletColor(b.type);
+                state.lastColor = mortarColor;
+                AbilityEffects.abilityActivate.at(turret.x, turret.y, turret.block.size, mortarColor);
+                if(turret.block instanceof Turret t && t.shootSound != null){
+                    t.shootSound.at(turret.x, turret.y, 0.8f, 0.95f);
+                }
+                empowerBullet(b, profile, true);
+            }
+        }else if(profile.mode == AbilityProfile.Mode.HEAT_RAMP){
+            state.heatCoolDelay = 45f; // wait 0.75s after last shot before cooling down
+            state.heat = Mathf.clamp(state.heat + profile.heatGainPerShot);
+
+            Color flameColor = resolveBulletColor(b.type);
+            state.lastColor = flameColor;
+
+            float dmgScale = Mathf.lerp(1f, profile.damageMultiplier, state.heat);
+            b.damage *= dmgScale;
+
+            if(state.heat >= 0.35f){
+                empowerBulletVisualOnly(b, profile, state.heat >= 0.6f, flameColor);
+            }
+
+            if(state.heat >= 1f){
+                state.heat = 0f;
+                state.meltdownTimer = profile.meltdownTicks;
+                turret.reloadCounter = 0f;
+                turret.applySlowdown(0.01f, profile.meltdownTicks);
+                AbilityEffects.abilityActivate.at(turret.x, turret.y, turret.block.size, Pal.remove);
+            }else if(state.heat > 0.2f){
+                float rateBoost = Mathf.lerp(1f, profile.fireRateMultiplier, state.heat);
+                turret.applyBoost(rateBoost, 24f);
+            }
         }
+    }
+
+    private void triggerChainLightning(Turret.TurretBuild turret, Bullet sourceBullet, AbilityProfile profile, Color arcColor){
+        float searchRange = turret.block instanceof Turret t ? t.range + 40f : 140f;
+        Unit first = Units.closestEnemy(turret.team, sourceBullet.x, sourceBullet.y, searchRange, u -> u.isGrounded() && u.isValid());
+        if(first == null){
+            first = Units.closestEnemy(turret.team, turret.x, turret.y, searchRange, u -> u.isGrounded() && u.isValid());
+        }
+        if(first == null) return;
+
+        float jumpDamage = sourceBullet.damage * profile.chainDamageRatio;
+        if(profile.debuff != null){
+            first.apply(profile.debuff, profile.debuffDurationTicks);
+        }
+
+        Unit prev = first;
+        chainCandidates.clear();
+        chainCandidates.add(first);
+
+        for(int i = 0; i < profile.chainTargets; i++){
+            Unit prevRef = prev;
+            Unit next = Units.closestEnemy(
+                turret.team,
+                prevRef.x,
+                prevRef.y,
+                profile.chainRadius,
+                u -> u.isGrounded() && u.isValid() && !chainCandidates.contains(u)
+            );
+            if(next == null) break;
+
+            chainCandidates.add(next);
+            AbilityEffects.chainArc.at(prevRef.x, prevRef.y, 0f, arcColor, next);
+            next.damagePierce(jumpDamage);
+            if(profile.debuff != null){
+                next.apply(profile.debuff, profile.debuffDurationTicks);
+            }
+            AbilityEffects.empoweredHit.at(next.x, next.y, 0f, arcColor);
+            prev = next;
+        }
+    }
+
+    private void triggerSeismicPull(float x, float y, mindustry.game.Team team, AbilityProfile profile, Color color){
+        AbilityEffects.seismicPull.at(x, y, 0f, color);
+        Units.nearbyEnemies(team, x, y, profile.pullRadius, u -> {
+            if(!u.isValid() || !u.isGrounded()) return;
+            float angleToCenter = u.angleTo(x, y);
+            float dist = u.dst(x, y);
+            float force = profile.pullStrength * Mathf.clamp(dist / profile.pullRadius, 0.25f, 1f);
+            u.vel.add(Angles.trnsx(angleToCenter, force), Angles.trnsy(angleToCenter, force));
+            if(profile.debuff != null){
+                u.apply(profile.debuff, profile.debuffDurationTicks);
+            }
+        });
     }
 
     private void convertToSnakeMissile(Turret.TurretBuild turret, Bullet triggerBullet, AbilityProfile profile, TurretState state){
@@ -198,14 +314,6 @@ public class AbilityManager{
 
         triggerBullet.damage = 0f;
         triggerBullet.remove();
-
-        state.missileShotsRemaining--;
-        if(state.missileShotsRemaining <= 0 && profile.meltdownTicks > 0f){
-            state.missileShotsRemaining = 0;
-            state.meltdownTimer = profile.meltdownTicks;
-            turret.reloadCounter = 0f;
-            turret.applySlowdown(0.01f, profile.meltdownTicks);
-        }
     }
 
     private MissileBulletType getOrCreateSnakeMissile(BulletType sourceAmmo, AbilityProfile profile, Color ammoColor){
@@ -271,6 +379,28 @@ public class AbilityManager{
                 state.triggerCooldown = Math.max(0f, state.triggerCooldown - Time.delta);
             }
 
+            // Scorch Heat Ramp cooling & heated sparks
+            if(state.profile.mode == AbilityProfile.Mode.HEAT_RAMP && state.meltdownTimer <= 0f){
+                if(state.heatCoolDelay > 0f){
+                    state.heatCoolDelay -= Time.delta;
+                }else if(state.heat > 0f){
+                    state.heat = Math.max(0f, state.heat - (state.profile.heatCoolPerSecond / 60f) * Time.delta);
+                }
+                if(state.heat >= 0.55f){
+                    state.sparkTimer += Time.delta;
+                    if(state.sparkTimer >= 10f){
+                        state.sparkTimer = 0f;
+                        Color sparkColor = state.lastColor != null ? state.lastColor : Pal.remove;
+                        AbilityEffects.activeTurretSpark.at(
+                            state.build.x + Mathf.range(state.build.block.size * 2.5f),
+                            state.build.y + Mathf.range(state.build.block.size * 2.5f),
+                            state.build.block.size,
+                            sparkColor
+                        );
+                    }
+                }
+            }
+
             if(state.meltdownTimer > 0f){
                 state.meltdownTimer -= Time.delta;
                 state.build.reloadCounter = 0f;
@@ -297,8 +427,16 @@ public class AbilityManager{
                 if(state.activeTimer <= 0f){
                     state.activeTimer = 0f;
                     state.shotCount = 0;
+                    if(state.pendingMeltdown && state.profile.meltdownTicks > 0f){
+                        state.pendingMeltdown = false;
+                        state.meltdownTimer = state.profile.meltdownTicks;
+                        state.build.reloadCounter = 0f;
+                        state.build.applySlowdown(0.01f, state.profile.meltdownTicks);
+                    }
                 }else{
-                    state.build.applyBoost(state.profile.fireRateMultiplier, state.activeTimer);
+                    if(state.profile.mode == AbilityProfile.Mode.OVERDRIVE_RUSH){
+                        state.build.applyBoost(state.profile.fireRateMultiplier, state.activeTimer);
+                    }
                     state.sparkTimer += Time.delta;
                     if(state.sparkTimer >= 8f){
                         state.sparkTimer = 0f;
@@ -320,6 +458,10 @@ public class AbilityManager{
         for(int i = empoweredList.size - 1; i >= 0; i--){
             EmpoweredBullet eb = empoweredList.get(i);
             if(eb.bullet == null || !eb.bullet.isAdded()){
+                if(eb.bullet != null && eb.profile.mode == AbilityProfile.Mode.SEISMIC_MORTAR && !eb.impactTriggered){
+                    eb.impactTriggered = true;
+                    triggerSeismicPull(eb.lastX, eb.lastY, eb.team, eb.profile, eb.color);
+                }
                 empoweredList.remove(i);
                 if(eb.bullet != null){
                     empoweredLookup.remove(eb.bullet.id);
@@ -327,6 +469,8 @@ public class AbilityManager{
                 continue;
             }
 
+            eb.lastX = eb.bullet.x;
+            eb.lastY = eb.bullet.y;
             eb.trailTimer += Time.delta;
             if(eb.trailTimer >= 2.2f){
                 eb.trailTimer = 0f;
@@ -371,7 +515,7 @@ public class AbilityManager{
         Draw.z();
     }
 
-    private void empowerBullet(Bullet b, AbilityProfile profile){
+    private void empowerBullet(Bullet b, AbilityProfile profile, boolean applyDebuff){
         b.damage *= profile.damageMultiplier;
 
         if(profile.bulletSpeedMultiplier > 0f && profile.bulletSpeedMultiplier != 1f){
@@ -379,7 +523,10 @@ public class AbilityManager{
             b.lifetime /= profile.bulletSpeedMultiplier;
         }
 
-        Color bulletColor = resolveBulletColor(b.type);
+        empowerBulletVisualOnly(b, profile, applyDebuff, resolveBulletColor(b.type));
+    }
+
+    private void empowerBulletVisualOnly(Bullet b, AbilityProfile profile, boolean applyDebuff, Color bulletColor){
         if(b.owner instanceof Turret.TurretBuild turret){
             TurretState state = turretStates.get(turret.id);
             if(state != null){
@@ -387,7 +534,7 @@ public class AbilityManager{
             }
         }
 
-        EmpoweredBullet eb = new EmpoweredBullet(b, profile, bulletColor);
+        EmpoweredBullet eb = new EmpoweredBullet(b, profile, bulletColor, applyDebuff);
         empoweredList.add(eb);
         empoweredLookup.put(b.id, eb);
 
@@ -423,6 +570,9 @@ public class AbilityManager{
         if(type instanceof BasicBulletType basic && basic.backColor != null){
             return basic.backColor;
         }
+        if(type instanceof LightningBulletType light && light.lightningColor != null){
+            return light.lightningColor;
+        }
         if(type.lightColor != null){
             return type.lightColor;
         }
@@ -441,11 +591,13 @@ public class AbilityManager{
         public final Turret.TurretBuild build;
         public final AbilityProfile profile;
         public int shotCount = 0;
-        public int missileShotsRemaining = 0;
         public float triggerCooldown = 0f;
         public float activeTimer = 0f;
         public float meltdownTimer = 0f;
         public float sparkTimer = 0f;
+        public float heat = 0f;
+        public float heatCoolDelay = 0f;
+        public boolean pendingMeltdown = false;
         public Color lastColor = null;
 
         public TurretState(Turret.TurretBuild build, AbilityProfile profile){
@@ -458,12 +610,20 @@ public class AbilityManager{
         final Bullet bullet;
         final AbilityProfile profile;
         final Color color;
+        final boolean applyDebuff;
+        final mindustry.game.Team team;
+        float lastX, lastY;
         float trailTimer = 0f;
+        boolean impactTriggered = false;
 
-        EmpoweredBullet(Bullet bullet, AbilityProfile profile, Color color){
+        EmpoweredBullet(Bullet bullet, AbilityProfile profile, Color color, boolean applyDebuff){
             this.bullet = bullet;
             this.profile = profile;
             this.color = color;
+            this.applyDebuff = applyDebuff;
+            this.team = bullet.team;
+            this.lastX = bullet.x;
+            this.lastY = bullet.y;
         }
     }
-            }
+                   }
