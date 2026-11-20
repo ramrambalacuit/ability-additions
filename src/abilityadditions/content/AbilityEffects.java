@@ -6,6 +6,8 @@ import arc.graphics.g2d.Fill;
 import arc.graphics.g2d.Lines;
 import arc.math.Angles;
 import arc.math.Interp;
+import arc.math.Mathf;
+import arc.math.geom.Position;
 import mindustry.entities.Effect;
 
 public class AbilityEffects{
@@ -61,6 +63,51 @@ public class AbilityEffects{
         Angles.randLenVectors(e.id, 6, 2f + 13f * e.fin(Interp.pow2Out), (x, y) -> {
             Lines.stroke(1.1f * e.fout());
             Lines.lineAngle(e.x + x, e.y + y, Angles.angle(x, y), 3f * e.fout());
+        });
+        Draw.color();
+    });
+
+    // Arc Static Chain lightning line (data = target Position)
+    public static final Effect chainArc = new Effect(14f, e -> {
+        if(!(e.data instanceof Position target)) return;
+
+        float x1 = e.x, y1 = e.y;
+        float x2 = target.getX(), y2 = target.getY();
+        int segments = 5;
+
+        Draw.color(e.color, Color.white, 0.55f * e.fout());
+        Lines.stroke(2.0f * e.fout());
+
+        float prevX = x1, prevY = y1;
+        for(int i = 1; i <= segments; i++){
+            float t = (float)i / segments;
+            float nx = Mathf.lerp(x1, x2, t);
+            float ny = Mathf.lerp(y1, y2, t);
+            if(i < segments){
+                float jitter = Mathf.sin(e.id * 17f + i * 9f) * 5.5f;
+                float perp = Angles.angle(x1, y1, x2, y2) + 90f;
+                nx += Angles.trnsx(perp, jitter);
+                ny += Angles.trnsy(perp, jitter);
+            }
+            Lines.line(prevX, prevY, nx, ny);
+            prevX = nx;
+            prevY = ny;
+        }
+        Fill.circle(x2, y2, 3.2f * e.fout());
+        Draw.color();
+    });
+
+    // Hail Seismic Mortar inward shockwave
+    public static final Effect seismicPull = new Effect(26f, e -> {
+        Draw.color(e.color, Color.white, 0.4f * e.fout());
+        Lines.stroke(2.2f * e.fout());
+        Lines.circle(e.x, e.y, 4f + 50f * (1f - e.fin(Interp.pow2Out)));
+
+        Lines.stroke(1.2f * e.fout());
+        Lines.circle(e.x, e.y, 3f + 36f * e.fin(Interp.pow3Out));
+
+        Angles.randLenVectors(e.id, 10, 46f * (1f - e.fin(Interp.pow2Out)), (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, 1.8f * e.fout());
         });
         Draw.color();
     });
