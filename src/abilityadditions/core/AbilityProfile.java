@@ -12,7 +12,7 @@ public class AbilityProfile{
         SALVO_STAGES,
         RAIL_ECHO,
         CARPET_BOMBLETS,
-        REPULSOR_CONE,
+        ECHO_KICK,
         HUNTER_MARK
     }
 
@@ -218,15 +218,15 @@ public class AbilityProfile{
         );
     }
 
-    public static AbilityProfile repulsorCone(
-        String abilityName, AbilityTrigger trigger, float damageMultiplier,
-        float coneRange, float pushStrength,
+    public static AbilityProfile echoKick(
+        String abilityName, AbilityTrigger trigger, float cloneDamageRatio,
+        float delaySeconds, float knockbackStrength,
         StatusEffect debuff, float debuffDurationSeconds
     ){
         return new AbilityProfile(
-            Mode.REPULSOR_CONE, abilityName, trigger,
-            0f, damageMultiplier, 1f, 1f, 1f,
-            0f, 0f, 0f, 0f, 0, 0f, 0f, coneRange, pushStrength,
+            Mode.ECHO_KICK, abilityName, trigger,
+            delaySeconds, cloneDamageRatio, 1f, 1f, 1f,
+            0f, 0f, 0f, 0f, 0, 0f, 0f, 0f, knockbackStrength,
             0f, 0f, 1f, 1f, 1f, 1f, 1f,
             debuff, null, debuffDurationSeconds
         );
@@ -306,9 +306,10 @@ public class AbilityProfile{
                 sb.append("[lightgray]Damage: []").append(formatNum(damageMultiplier)).append("x + ")
                     .append(chainTargets).append(" delayed bomblets\n");
             }
-            case REPULSOR_CONE -> {
+            case ECHO_KICK -> {
                 sb.append("[lightgray]Trigger: []").append(trigger.describe()).append("\n");
-                sb.append("[lightgray]Damage: []").append(formatNum(damageMultiplier)).append("x + knockback shockwave cone\n");
+                sb.append("[lightgray]Clone Shot: []")
+                    .append(Math.round(damageMultiplier * 100f)).append("% dmg double-shot with heavy knockback\n");
             }
             case HUNTER_MARK -> {
                 sb.append("[lightgray]Trigger: []").append(trigger.describe()).append("\n");
@@ -333,4 +334,4 @@ public class AbilityProfile{
             .replaceAll("0+$", "")
             .replaceAll("\\.$", "");
     }
-        }
+        } 
