@@ -39,6 +39,7 @@ import mindustry.world.draw.DrawTurret;
 
 public class AbilityManager{
     private static final AbilityManager INSTANCE = new AbilityManager();
+    private static final Object CLONE_SENTINEL = new Object();
 
     private final ObjectMap<Block, AbilityProfile> blockAbilities = new ObjectMap<>();
     private final ObjectMap<BulletType, MissileBulletType> missileCache = new ObjectMap<>();
@@ -48,6 +49,7 @@ public class AbilityManager{
     private final IntMap<MarkedUnit> markedUnits = new IntMap<>();
     private final Seq<DelayedEcho> delayedEchoes = new Seq<>();
     private final Seq<DelayedBomblet> delayedBomblets = new Seq<>();
+    private final Seq<DelayedFuseShot> delayedFuseShots = new Seq<>();
     private final Seq<Integer> staleStateIds = new Seq<>();
     private final Seq<Unit> chainCandidates = new Seq<>();
 
@@ -179,6 +181,11 @@ public class AbilityManager{
                 AbilityEffects.hunterMarkHit.at(e.unit.x, e.unit.y, 0f, eb.color);
             }
 
+            if(eb.profile.mode == AbilityProfile.Mode.ECHO_KICK){
+                float ang = e.bullet.rotation();
+                e.unit.vel.add(Angles.trnsx(ang, eb.profile.pullStrength), Angles.trnsy(ang, eb.profile.pullStrength));
+            }
+
             if(eb.profile.debuff != null && eb.applyDebuff){
                 e.unit.apply(eb.profile.debuff, eb.profile.debuffDurationTicks);
             }
@@ -218,7 +225,8 @@ public class AbilityManager{
     }
 
     private void onBulletSpawned(Bullet b){
-        if(b == null || !(b.owner instanceof Turret.TurretBuild turret)) return;
+        if(b == null || b.data == CLONE_SENTINEL) return;
+        if(!(b.owner instanceof Turret.TurretBuild turret)) return;
 
         AbilityProfile profile = blockAbilities.get(turret.block);
         if(profile == null) return;
@@ -336,6 +344,7 @@ public class AbilityManager{
                     b.vel.scl(profile.stage3Speed);
                     b.lifetime *= (profile.stage3Range / profile.stage3Speed);
                     turret.applyBoost(profile.stage3FireRate, 20f);
+                    AbilityEffects.salvoMuzzleSpark.at(b.x, b.y, b.rotation(), bulletColor);
                     empowerBulletVisualOnly(b, profile, true, profile.secondaryDebuff, bulletColor);
                 }
             }
@@ -363,16 +372,22 @@ public class AbilityManager{
                     empowerBullet(b, profile, true, null);
                 }
             }
-            case REPULSOR_CONE -> {
+            case ECHO_KICK -> {
+                Color shrapnelColor = resolveBulletColor(b.type);
+                state.lastColor = shrapnelColor;
+
                 if(state.activeTimer > 0f){
-                    empowerBullet(b, profile, true, null);
+                    delayedFuseShots.add(new DelayedFuseShot(
+                        turret, b.type, b.x, b.y, b.rotation(),
+                        b.damage * profile.damageMultiplier, turret.team, profile, shrapnelColor, profile.durationTicks
+                    ));
                 }else if(profile.trigger.checkAndAdvance(state)){
-                    Color shrapnelColor = resolveBulletColor(b.type);
-                    state.lastColor = shrapnelColor;
-                    state.activeTimer = 15f;
+                    state.activeTimer = 10f;
                     AbilityEffects.abilityActivate.at(turret.x, turret.y, turret.block.size, shrapnelColor);
-                    triggerRepulsorCone(turret, profile, shrapnelColor);
-                    empowerBullet(b, profile, true, null);
+                    delayedFuseShots.add(new DelayedFuseShot(
+                        turret, b.type, b.x, b.y, b.rotation(),
+                        b.damage * profile.damageMultiplier, turret.team, profile, shrapnelColor, profile.durationTicks
+                    ));
                 }
             }
             case HUNTER_MARK -> {
@@ -440,20 +455,6 @@ public class AbilityManager{
             u.vel.add(Angles.trnsx(angleToCenter, force), Angles.trnsy(angleToCenter, force));
             if(profile.debuff != null){
                 u.apply(profile.debuff, profile.debuffDurationTicks);
-            }
-        });
-    }
-
-    private void triggerRepulsorCone(Turret.TurretBuild turret, AbilityProfile profile, Color color){
-        AbilityEffects.repulsorCone.at(turret.x, turret.y, turret.rotation, color);
-        Units.nearbyEnemies(turret.team, turret.x, turret.y, profile.pullRadius, u -> {
-            if(!u.isValid() || !u.isGrounded()) return;
-            float ang = turret.angleTo(u);
-            if(Angles.within(ang, turret.rotation, 38f)){
-                u.vel.add(Angles.trnsx(ang, profile.pullStrength), Angles.trnsy(ang, profile.pullStrength));
-                if(profile.debuff != null){
-                    u.apply(profile.debuff, profile.debuffDurationTicks);
-                }
             }
         });
     }
@@ -658,6 +659,23 @@ public class AbilityManager{
             turretStates.remove(staleStateIds.get(i));
         }
 
+        for(int i = delayedFuseShots.size - 1; i >= 0; i--){
+            DelayedFuseShot s = delayedFuseShots.get(i);
+            s.timer -= Time.delta;
+            if(s.timer <= 0f){
+                delayedFuseShots.remove(i);
+                if(s.turret != null && s.turret.isValid()){
+                    Bullet clone = s.sourceAmmo.create(s.turret, s.team, s.x, s.y, s.angle, s.damage, 1f, 1f, CLONE_SENTINEL);
+                    if(clone != null){
+                        empowerBulletVisualOnly(clone, s.profile, true, null, s.color);
+                    }
+                    if(s.turret.block instanceof Turret t && t.shootSound != null){
+                        t.shootSound.at(s.x, s.y, 1.3f, 0.7f);
+                    }
+                }
+            }
+        }
+
         for(int i = delayedEchoes.size - 1; i >= 0; i--){
             DelayedEcho echo = delayedEchoes.get(i);
             echo.timer -= Time.delta;
@@ -750,30 +768,20 @@ public class AbilityManager{
             if(state.profile.mode == AbilityProfile.Mode.SALVO_STAGES){
                 int stage = state.salvoStage(state.profile);
                 if(stage >= 2){
-                    float rot = turret.drawrot() + 90f;
-                    float recoilShift = -turret.curRecoil * 2.5f;
-                    Color c = stage == 3 ? (state.lastColor != null ? state.lastColor : Pal.accent) : Pal.lancerLaser;
+                    Color triColor = stage == 3 ? Pal.lancerLaser : (state.lastColor != null ? state.lastColor : Pal.lancerLaser);
                     Draw.z(Layer.turret + 0.08f);
 
-                    float len = stage == 3 ? 11f : 7f;
-                    float sideOff = stage == 3 ? 3.2f : 2.6f;
-                    Draw.color(c, (stage == 3 ? 0.75f : 0.45f) + 0.2f * pulse);
-                    Lines.stroke(stage == 3 ? 1.5f : 1.1f);
-
-                    for(int s = -1; s <= 1; s += 2){
-                        float bx = turret.x + Angles.trnsx(rot, 2f + recoilShift) + Angles.trnsx(rot + 90f, s * sideOff);
-                        float by = turret.y + Angles.trnsy(rot, 2f + recoilShift) + Angles.trnsy(rot + 90f, s * sideOff);
-                        Lines.lineAngle(bx, by, rot, len);
-                    }
+                    float triRadius = turret.block.size * 5.2f;
+                    Draw.color(triColor, 0.72f + 0.2f * pulse);
+                    Lines.stroke(1.3f);
+                    Lines.poly(turret.x, turret.y, 3, triRadius, Time.time * 1.4f);
 
                     if(stage == 3){
-                        float tipX = turret.x + Angles.trnsx(rot, 12f + recoilShift);
-                        float tipY = turret.y + Angles.trnsy(rot, 12f + recoilShift);
-                        Draw.color(Color.white, 0.55f + 0.35f * pulse);
-                        Fill.circle(tipX, tipY, 1.5f + 0.4f * pulse);
-                        Lines.stroke(0.9f);
-                        Draw.color(c, 0.35f * pulse);
-                        Lines.lineAngle(tipX, tipY, rot, 14f);
+                        Color sqColor = state.lastColor != null ? state.lastColor : Pal.accent;
+                        float sqRadius = turret.block.size * 7.4f;
+                        Draw.color(sqColor, 0.8f + 0.2f * pulse);
+                        Lines.stroke(1.5f);
+                        Lines.poly(turret.x, turret.y, 4, sqRadius, -Time.time * 3.1f);
                     }
                 }
             }
@@ -903,6 +911,7 @@ public class AbilityManager{
         markedUnits.clear();
         delayedEchoes.clear();
         delayedBomblets.clear();
+        delayedFuseShots.clear();
         seenBulletIds.clear();
         nextSeenBulletIds.clear();
     }
@@ -1012,4 +1021,27 @@ public class AbilityManager{
             this.timer = timer;
         }
     }
-                                                                  }
+
+    private static class DelayedFuseShot{
+        final Turret.TurretBuild turret;
+        final BulletType sourceAmmo;
+        final float x, y, angle, damage;
+        final Team team;
+        final AbilityProfile profile;
+        final Color color;
+        float timer;
+
+        DelayedFuseShot(Turret.TurretBuild turret, BulletType sourceAmmo, float x, float y, float angle, float damage, Team team, AbilityProfile profile, Color color, float timer){
+            this.turret = turret;
+            this.sourceAmmo = sourceAmmo;
+            this.x = x;
+            this.y = y;
+            this.angle = angle;
+            this.damage = damage;
+            this.team = team;
+            this.profile = profile;
+            this.color = color;
+            this.timer = timer;
+        }
+    }
+        }
