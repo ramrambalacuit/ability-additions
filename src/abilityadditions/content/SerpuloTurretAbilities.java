@@ -61,9 +61,9 @@ public class SerpuloTurretAbilities{
             1.25f, 3, 34f, 0.40f, slowTier2, 3f
         ));
 
-        manager.register(Blocks.fuse, AbilityProfile.repulsorCone(
-            "Repulsor Cone", AbilityTrigger.everyShots(15),
-            1.40f, 130f, 6.2f, armorTier2, 3f
+        manager.register(Blocks.fuse, AbilityProfile.echoKick(
+            "Echo Kick", AbilityTrigger.chancePerCycle(0.05f, 0.35f),
+            0.10f, 0.18f, 9.5f, armorTier2, 3f
         ));
 
         manager.register(Blocks.swarmer, AbilityProfile.hunterMark(
