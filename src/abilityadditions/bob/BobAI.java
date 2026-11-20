@@ -4,8 +4,6 @@ import abilityadditions.content.AbilityEffects;
 import arc.math.Angles;
 import arc.math.Mathf;
 import arc.math.geom.Vec2;
-import arc.struct.IntIntMap;
-import arc.struct.IntQueue;
 import arc.util.Time;
 import mindustry.Vars;
 import mindustry.content.Blocks;
@@ -44,39 +42,34 @@ public class BobAI extends AIController{
     private float smokeTimer = 0f;
     private float sweatTimer = 0f;
     private float smokeBombTimer = 0f;
-    private float pathRecalcTimer = 0f;
-    private float stuckTimer = 0f;
-    private float lastCheckX = 0f, lastCheckY = 0f;
     private float lastHealth = -1f;
     private boolean usedSmokeBomb = false;
     private boolean sprinting = false;
 
     private final Vec2 moveGoal = new Vec2();
-    private final Vec2 nextWaypoint = new Vec2();
+    private final Vec2 pathOut = new Vec2();
     private final Vec2 escapePos = new Vec2();
     private final Vec2 dodgeVec = new Vec2();
-
-    private final IntQueue bfsQueue = new IntQueue();
-    private final IntIntMap bfsParent = new IntIntMap();
 
     public boolean isSmokeCloaked(){
         return smokeBombTimer > 0f;
     }
 
     @Override
-    public void updateUnit(){
+    public void updateTargeting(){
+    }
+
+    @Override
+    public void updateMovement(){
         if(unit == null || !unit.isValid()) return;
 
         if(lastHealth < 0f){
             lastHealth = unit.health;
-            lastCheckX = unit.x;
-            lastCheckY = unit.y;
             pickWanderPoint();
         }
 
         if(dashCooldown > 0f) dashCooldown = Math.max(0f, dashCooldown - Time.delta);
         if(prankCooldown > 0f) prankCooldown = Math.max(0f, prankCooldown - Time.delta);
-        if(pathRecalcTimer > 0f) pathRecalcTimer = Math.max(0f, pathRecalcTimer - Time.delta);
 
         if(smokeBombTimer > 0f){
             smokeBombTimer = Math.max(0f, smokeBombTimer - Time.delta);
@@ -86,7 +79,6 @@ public class BobAI extends AIController{
         boolean wasHit = smokeBombTimer <= 0f && unit.health < lastHealth - 0.1f;
         lastHealth = unit.health;
 
-        // <50% HP Ability: Smoke Snow Bomb (10s stealth + invincibility + decoy run)
         if(!usedSmokeBomb && unit.health <= unit.maxHealth * 0.5f){
             triggerSmokeSnowBomb();
             return;
@@ -97,7 +89,6 @@ public class BobAI extends AIController{
 
         if(wasHit){
             if(state == State.PRANKSTER && !usedSmokeBomb){
-                // Reposition to a new spot / different side when shooed away
                 pickRepositionSpot(nearestThreat);
             }
             state = State.SKIDADDLE;
@@ -108,12 +99,11 @@ public class BobAI extends AIController{
 
         updateStateLogic(nearestThreat, bulletThreat);
         updateParticles();
-        updateWeapons();
     }
 
     private void triggerSmokeSnowBomb(){
         usedSmokeBomb = true;
-        smokeBombTimer = 10f * 60f; // 10 seconds
+        smokeBombTimer = 10f * 60f;
         state = State.SKIDADDLE;
         stateTimer = 240f;
         sprinting = true;
@@ -125,10 +115,8 @@ public class BobAI extends AIController{
         Unit threat = findNearestUnitThreat();
         float away = threat != null ? threat.angleTo(unit) : Mathf.random(360f);
         float fakeAngle = away + Mathf.random(-70f, 70f);
-        escapePos.set(unit.x + Angles.trnsx(fakeAngle, 150f), unit.y + Angles.trnsy(fakeAngle, 150f));
+        moveGoal.set(unit.x + Angles.trnsx(fakeAngle, 160f), unit.y + Angles.trnsy(fakeAngle, 160f));
         unit.vel.add(Angles.trnsx(fakeAngle, 3.8f), Angles.trnsy(fakeAngle, 3.8f));
-        moveGoal.set(escapePos);
-        nextWaypoint.set(escapePos);
     }
 
     private void updateStateLogic(Unit threatUnit, boolean bulletThreat){
@@ -145,7 +133,6 @@ public class BobAI extends AIController{
                 return;
             }
 
-            // Look for a nearby base building to prank (never scared of buildings!)
             if(prankCooldown <= 0f){
                 Building baseTarget = findPrankBuilding(150f);
                 if(baseTarget != null){
@@ -158,7 +145,6 @@ public class BobAI extends AIController{
 
             if(idlePauseTimer > 0f){
                 idlePauseTimer -= Time.delta;
-                unit.vel.scl(0.6f);
                 return;
             }
 
@@ -169,7 +155,7 @@ public class BobAI extends AIController{
                 pickWanderPoint();
             }
 
-            moveSmartly(moveGoal, 0.48f, false);
+            navigateTo(moveGoal, false, 0f);
             faceMovement();
 
         }else if(state == State.CURIOUS){
@@ -187,13 +173,11 @@ public class BobAI extends AIController{
                 return;
             }
 
-            unit.vel.scl(0.65f);
             faceTarget();
-
             stateTimer -= Time.delta;
             if(stateTimer <= 0f){
                 state = State.PRANKSTER;
-                stateTimer = Mathf.random(360f, 540f); // calm 6-9s prank session
+                stateTimer = Mathf.random(360f, 540f);
                 prankSwitchTimer = 110f;
             }
 
@@ -202,7 +186,7 @@ public class BobAI extends AIController{
             prankSwitchTimer -= Time.delta;
 
             if(stateTimer <= 0f){
-                prankCooldown = 360f; // 6s chill break before next prank session
+                prankCooldown = 360f;
                 state = State.NEUTRAL;
                 stateTimer = 180f;
                 target = null;
@@ -210,20 +194,20 @@ public class BobAI extends AIController{
                 return;
             }
 
-            // Rotate between transport/drill blocks instead of camping 1 building
             if(target == null || !isTargetValid(target) || prankSwitchTimer <= 0f){
                 prankSwitchTimer = Mathf.random(95f, 145f);
                 Teamc nextTarget = findPrankBuilding(180f);
-                if(nextTarget == null) nextTarget = threatUnit != null && threatDist < 180f ? threatUnit : null;
+                if(nextTarget == null && threatUnit != null && threatDist < 180f){
+                    nextTarget = threatUnit;
+                }
                 target = nextTarget;
             }
 
             if(target == null){
-                // Walk toward nearest base (player or enemy) if none nearby
                 Building farBase = findPrankBuilding(700f);
                 if(farBase != null){
                     moveGoal.set(farBase.x, farBase.y);
-                    moveSmartly(moveGoal, 0.58f, false);
+                    navigateTo(moveGoal, false, 0f);
                     faceMovement();
                 }else{
                     state = State.NEUTRAL;
@@ -232,7 +216,6 @@ public class BobAI extends AIController{
                 return;
             }
 
-            // Back-dash if player/unit rushes Bob (2.5s cooldown)
             if(threatUnit != null && threatDist < 54f && dashCooldown <= 0f){
                 dashCooldown = 150f;
                 float away = threatUnit.angleTo(unit);
@@ -243,22 +226,20 @@ public class BobAI extends AIController{
             sprinting = bulletThreat || threatDist < 48f;
             if(bulletThreat){
                 escapePos.set(unit.x + dodgeVec.x * 85f, unit.y + dodgeVec.y * 85f);
-                moveSmartly(escapePos, 0.92f, false);
+                navigateTo(escapePos, false, 0.14f);
             }else if(threatUnit != null && threatDist < 68f){
                 float away = threatUnit.angleTo(unit);
                 escapePos.set(unit.x + Angles.trnsx(away, 95f), unit.y + Angles.trnsy(away, 95f));
-                moveSmartly(escapePos, 0.85f, false);
+                navigateTo(escapePos, false, 0.10f);
             }else{
                 float dst = unit.dst(target);
                 if(dst < 68f){
                     float away = target.angleTo(unit);
                     escapePos.set(unit.x + Angles.trnsx(away, 80f), unit.y + Angles.trnsy(away, 80f));
-                    moveSmartly(escapePos, 0.62f, false);
+                    navigateTo(escapePos, false, 0f);
                 }else if(dst > 125f){
                     moveGoal.set(target.x(), target.y());
-                    moveSmartly(moveGoal, 0.62f, false);
-                }else{
-                    unit.vel.scl(0.75f);
+                    navigateTo(moveGoal, false, 0f);
                 }
             }
             faceTarget();
@@ -281,7 +262,7 @@ public class BobAI extends AIController{
                 escapePos.set(unit.x + Angles.trnsx(awayAngle, 120f), unit.y + Angles.trnsy(awayAngle, 120f));
             }
 
-            moveSmartly(escapePos, sprinting ? 1.0f : 0.78f, true);
+            navigateTo(escapePos, true, sprinting ? 0.18f : 0.08f);
             faceMovement();
 
             stateTimer -= Time.delta;
@@ -298,130 +279,25 @@ public class BobAI extends AIController{
         }
     }
 
-    private void moveSmartly(Vec2 goal, float speedScale, boolean preyWeave){
-        // Detect stuck in U-shape walls and compute BFS waypoint around obstacles
-        stuckTimer += Time.delta;
-        if(stuckTimer >= 24f){
-            stuckTimer = 0f;
-            if(Mathf.dst(unit.x, unit.y, lastCheckX, lastCheckY) < 6f){
-                computeBfsWaypoint(goal);
-                pathRecalcTimer = 45f;
-            }
-            lastCheckX = unit.x;
-            lastCheckY = unit.y;
+    private void navigateTo(Vec2 goal, boolean preyWeave, float extraPush){
+        Vec2 stepGoal = goal;
+        if(Vars.controlPath != null && Vars.controlPath.getPathPosition(unit, goal, pathOut, null)){
+            stepGoal = pathOut;
         }
 
-        Vec2 activeTarget = goal;
-        if(pathRecalcTimer > 0f && !nextWaypoint.isZero()){
-            if(unit.dst(nextWaypoint) < 12f){
-                computeBfsWaypoint(goal);
-            }
-            activeTarget = nextWaypoint;
-        }else if(!hasLineOfSight(unit.x, unit.y, goal.x, goal.y)){
-            computeBfsWaypoint(goal);
-            pathRecalcTimer = 40f;
-            if(!nextWaypoint.isZero()) activeTarget = nextWaypoint;
-        }
-
-        float desiredAngle = unit.angleTo(activeTarget);
+        float ang = unit.angleTo(stepGoal);
         if(preyWeave){
             weavePhase += Time.delta * 0.14f;
-            desiredAngle += Mathf.sin(weavePhase) * 24f;
+            ang += Mathf.sin(weavePhase) * 18f;
+            escapePos.set(unit.x + Angles.trnsx(ang, 40f), unit.y + Angles.trnsy(ang, 40f));
+            moveTo(escapePos, 0f);
+        }else{
+            moveTo(stepGoal, 0f);
         }
 
-        // Local wall-avoidance feelers
-        float clearAngle = findClearAngle(desiredAngle);
-        escapePos.set(unit.x + Angles.trnsx(clearAngle, 48f), unit.y + Angles.trnsy(clearAngle, 48f));
-        moveTo(escapePos, 0f);
-        unit.vel.scl(speedScale);
-    }
-
-    private float findClearAngle(float baseAngle){
-        float[] offsets = {0f, 30f, -30f, 60f, -60f, 95f, -95f, 135f, -135f, 180f};
-        for(float off : offsets){
-            float ang = baseAngle + off;
-            if(isWalkablePoint(unit.x + Angles.trnsx(ang, 14f), unit.y + Angles.trnsy(ang, 14f))
-                && isWalkablePoint(unit.x + Angles.trnsx(ang, 26f), unit.y + Angles.trnsy(ang, 26f))){
-                return ang;
-            }
+        if(extraPush > 0f){
+            unit.vel.add(Angles.trnsx(ang, extraPush * Time.delta), Angles.trnsy(ang, extraPush * Time.delta));
         }
-        return baseAngle;
-    }
-
-    private void computeBfsWaypoint(Vec2 goal){
-        nextWaypoint.set(goal);
-        if(Vars.world == null) return;
-
-        Tile start = Vars.world.tileWorld(unit.x, unit.y);
-        Tile end = Vars.world.tileWorld(goal.x, goal.y);
-        if(start == null || end == null) return;
-
-        bfsQueue.clear();
-        bfsParent.clear();
-
-        int startPos = start.pos();
-        bfsQueue.addLast(startPos);
-        bfsParent.put(startPos, -1);
-
-        int bestPos = -1;
-        float bestDst = Float.MAX_VALUE;
-        int visited = 0;
-        int[] dx = {1, -1, 0, 0};
-        int[] dy = {0, 0, 1, -1};
-
-        while(!bfsQueue.isEmpty() && visited < 420){
-            int cur = bfsQueue.removeFirst();
-            visited++;
-            Tile ct = Vars.world.tile(cur);
-            if(ct == null) continue;
-
-            float d = ct.dst(end);
-            if(d < bestDst){
-                bestDst = d;
-                bestPos = cur;
-            }
-            if(cur == end.pos()) break;
-
-            for(int i = 0; i < 4; i++){
-                Tile nt = Vars.world.tile(ct.x + dx[i], ct.y + dy[i]);
-                if(nt == null || nt.solid() || bfsParent.containsKey(nt.pos())) continue;
-                bfsParent.put(nt.pos(), cur);
-                bfsQueue.addLast(nt.pos());
-            }
-        }
-
-        if(bestPos == -1 || bestPos == startPos) return;
-
-        int step = bestPos;
-        int prev = bfsParent.get(step, -1);
-        int safety = 0;
-        while(prev != -1 && prev != startPos && safety++ < 200){
-            step = prev;
-            prev = bfsParent.get(step, -1);
-        }
-        // Advance 2 tiles ahead along path for smoother movement
-        Tile wp = Vars.world.tile(step);
-        if(wp != null){
-            nextWaypoint.set(wp.worldx(), wp.worldy());
-        }
-    }
-
-    private boolean isWalkablePoint(float x, float y){
-        if(Vars.world == null) return true;
-        Tile t = Vars.world.tileWorld(x, y);
-        return t != null && !t.solid();
-    }
-
-    private boolean hasLineOfSight(float x1, float y1, float x2, float y2){
-        float dist = Mathf.dst(x1, y1, x2, y2);
-        int steps = Math.min(18, Math.max(2, (int)(dist / 12f)));
-        for(int i = 1; i < steps; i++){
-            float t = (float)i / steps;
-            if(!isWalkablePoint(Mathf.lerp(x1, x2, t), Mathf.lerp(y1, y2, t))){
-                return false;
-            }
-        }
-        return true;
     }
 
     private boolean computeBulletDodge(){
@@ -536,7 +412,6 @@ public class BobAI extends AIController{
 
     private void pickWanderPoint(){
         if(Vars.world == null) return;
-        // Occasionally wander toward a base to keep pranks lively
         if(Mathf.chance(0.45f)){
             Building b = findPrankBuilding(550f);
             if(b != null){
@@ -568,4 +443,4 @@ public class BobAI extends AIController{
         if(state == State.PRANKSTER) return true;
         return state == State.CURIOUS && stateTimer <= 8f;
     }
-            }
+                        }
