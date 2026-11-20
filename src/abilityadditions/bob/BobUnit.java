@@ -46,12 +46,12 @@ public class BobUnit{
         bob = new UnitType("bob"){
             {
                 localizedName = "Bob";
-                description = "A festive snow-dwelling prankster. Calmly trolls your base until annoyed.";
+                description = "A festive snow-dwelling prankster. Harmless until you annoy him.";
                 health = 5000f;
                 armor = 0f;
-                speed = 1.55f;
+                speed = 1.05f;
                 hitSize = 8f;
-                rotateSpeed = 5f;
+                rotateSpeed = 7f;
                 mechLegColor = Color.valueOf("d4e6f5");
                 lightColor = Color.valueOf("d8f3ff");
                 lightRadius = 35f;
@@ -71,7 +71,9 @@ public class BobUnit{
                     shootY = 5f;
                     mirror = false;
                     reload = 60f;
-                    rotate = false;
+                    rotate = true;
+                    rotateSpeed = 14f;
+                    shootCone = 35f;
                     inaccuracy = 4f;
                     shootSound = Vars.headless ? Sounds.none : Vars.tree.loadSound("snow");
                     showStatSprite = false;
@@ -116,25 +118,15 @@ public class BobUnit{
             @Override
             public void draw(Unit unit){
                 boolean cloaked = unit.controller() instanceof BobAI ai && ai.isSmokeCloaked();
+                float alpha = cloaked ? 0.16f : 1f;
 
-                if(cloaked){
-                    Draw.z(Layer.groundUnit + 0.5f);
-                    if(region != null && region.found()){
-                        Draw.color(0.85f, 0.92f, 1f, 0.16f);
-                        Draw.rect(region, unit.x, unit.y, unit.rotation - 90f);
-                    }
-                    Draw.color(0.95f, 0.35f, 0.35f, 0.14f);
-                    Fill.circle(unit.x, unit.y, 2.5f);
-                    Draw.color();
-                    Draw.z();
-                    return;
+                if(!cloaked){
+                    super.draw(unit);
                 }
-
-                super.draw(unit);
 
                 Draw.z(Layer.groundUnit + 0.5f);
                 if(region != null && region.found()){
-                    Draw.color(Color.valueOf("f0f9ff"), 0.72f);
+                    Draw.color(Color.valueOf("f0f9ff"), cloaked ? alpha : 0.72f);
                     Draw.rect(region, unit.x, unit.y, unit.rotation - 90f);
                 }
 
@@ -143,13 +135,13 @@ public class BobUnit{
                 float tipX = hx + Angles.trnsx(unit.rotation - 150f, 6.5f);
                 float tipY = hy + Angles.trnsy(unit.rotation - 150f, 6.5f);
 
-                Draw.color(Color.valueOf("e53935"));
+                Draw.color(Color.valueOf("e53935"), alpha);
                 Fill.circle(hx, hy, 3.1f);
                 Fill.circle(Mathf.lerp(hx, tipX, 0.5f), Mathf.lerp(hy, tipY, 0.5f), 2.1f);
-                Draw.color(Color.white);
+                Draw.color(Color.white, alpha);
                 Fill.circle(tipX, tipY, 1.5f);
 
-                Draw.color(Color.valueOf("2ecc71"));
+                Draw.color(Color.valueOf("2ecc71"), alpha);
                 Fill.circle(
                     unit.x + Angles.trnsx(unit.rotation, 2.2f),
                     unit.y + Angles.trnsy(unit.rotation, 2.2f),
