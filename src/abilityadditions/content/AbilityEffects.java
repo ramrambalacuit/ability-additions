@@ -67,7 +67,6 @@ public class AbilityEffects{
         Draw.color();
     });
 
-    // Arc Static Chain lightning line (data = target Position)
     public static final Effect chainArc = new Effect(14f, e -> {
         if(!(e.data instanceof Position target)) return;
 
@@ -97,7 +96,6 @@ public class AbilityEffects{
         Draw.color();
     });
 
-    // Hail Seismic Mortar inward shockwave
     public static final Effect seismicPull = new Effect(26f, e -> {
         Draw.color(e.color, Color.white, 0.4f * e.fout());
         Lines.stroke(2.2f * e.fout());
@@ -112,7 +110,54 @@ public class AbilityEffects{
         Draw.color();
     });
 
-    // Bob effects
+    public static final Effect railEcho = new Effect(20f, e -> {
+        if(!(e.data instanceof Position end)) return;
+        float x2 = end.getX(), y2 = end.getY();
+
+        Draw.color(e.color, Color.white, 0.5f * e.fout());
+        Lines.stroke(4.2f * e.fout());
+        Lines.line(e.x, e.y, x2, y2);
+
+        Draw.color(Color.white);
+        Lines.stroke(1.6f * e.fout());
+        Lines.line(e.x, e.y, x2, y2);
+        Draw.color();
+    });
+
+    public static final Effect carpetBomblet = new Effect(22f, e -> {
+        Draw.color(e.color, Color.white, 0.4f * e.fout());
+        Lines.stroke(1.8f * e.fout());
+        Lines.circle(e.x, e.y, 2f + 22f * e.fin(Interp.pow3Out));
+
+        Angles.randLenVectors(e.id, 6, 3f + 20f * e.fin(Interp.pow2Out), (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, 2.0f * e.fout());
+        });
+        Draw.color();
+    });
+
+    public static final Effect repulsorCone = new Effect(20f, e -> {
+        Draw.color(e.color, Color.white, 0.4f * e.fout());
+        Lines.stroke(2.4f * e.fout());
+        for(int i = -2; i <= 2; i++){
+            float ang = e.rotation + i * 14f;
+            float dist = 12f + 110f * e.fin(Interp.pow2Out);
+            Lines.lineAngle(
+                e.x + Angles.trnsx(ang, dist * 0.35f),
+                e.y + Angles.trnsy(ang, dist * 0.35f),
+                ang,
+                16f * e.fout()
+            );
+        }
+        Draw.color();
+    });
+
+    public static final Effect hunterMarkHit = new Effect(16f, e -> {
+        Draw.color(e.color, Color.white, 0.5f);
+        Lines.stroke(1.5f * e.fout());
+        Lines.poly(e.x, e.y, 4, 4f + 12f * e.fin(Interp.pow2Out), 45f);
+        Draw.color();
+    });
+
     public static final Effect bobSmoke = new Effect(24f, e -> {
         Draw.color(Color.lightGray, Color.white, 0.5f);
         Draw.alpha(0.55f * e.fout());
@@ -160,4 +205,4 @@ public class AbilityEffects{
         });
         Draw.color();
     });
-                     }
+                    }
