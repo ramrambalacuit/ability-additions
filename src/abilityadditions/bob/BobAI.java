@@ -48,6 +48,7 @@ public class BobAI extends AIController{
 
     private final Vec2 moveGoal = new Vec2();
     private final Vec2 pathOut = new Vec2();
+    private final Vec2 baseCenter = new Vec2();
     private final Vec2 escapePos = new Vec2();
     private final Vec2 dodgeVec = new Vec2();
 
@@ -88,13 +89,11 @@ public class BobAI extends AIController{
         boolean bulletThreat = smokeBombTimer <= 0f && computeBulletDodge();
 
         if(wasHit){
-            if(state == State.PRANKSTER && !usedSmokeBomb){
-                pickRepositionSpot(nearestThreat);
-            }
             state = State.SKIDADDLE;
-            stateTimer = 170f;
+            stateTimer = 190f;
             sprinting = true;
             target = null;
+            pickEscapeAwayFromBase(nearestThreat);
         }
 
         updateStateLogic(nearestThreat, bulletThreat);
@@ -105,7 +104,7 @@ public class BobAI extends AIController{
         usedSmokeBomb = true;
         smokeBombTimer = 10f * 60f;
         state = State.SKIDADDLE;
-        stateTimer = 240f;
+        stateTimer = 260f;
         sprinting = true;
         target = null;
 
@@ -113,10 +112,9 @@ public class BobAI extends AIController{
         AbilityEffects.bobDash.at(unit.x, unit.y);
 
         Unit threat = findNearestUnitThreat();
-        float away = threat != null ? threat.angleTo(unit) : Mathf.random(360f);
-        float fakeAngle = away + Mathf.random(-70f, 70f);
-        moveGoal.set(unit.x + Angles.trnsx(fakeAngle, 160f), unit.y + Angles.trnsy(fakeAngle, 160f));
-        unit.vel.add(Angles.trnsx(fakeAngle, 3.8f), Angles.trnsy(fakeAngle, 3.8f));
+        pickEscapeAwayFromBase(threat);
+        float away = unit.angleTo(moveGoal) + Mathf.random(-35f, 35f);
+        unit.vel.add(Angles.trnsx(away, 3.6f), Angles.trnsy(away, 3.6f));
     }
 
     private void updateStateLogic(Unit threatUnit, boolean bulletThreat){
@@ -128,16 +126,17 @@ public class BobAI extends AIController{
 
             if(bulletThreat || threatDist < 36f){
                 state = State.SKIDADDLE;
-                stateTimer = 150f;
+                stateTimer = 160f;
                 sprinting = true;
+                pickEscapeAwayFromBase(threatUnit);
                 return;
             }
 
             if(prankCooldown <= 0f){
-                Building baseTarget = findPrankBuilding(150f);
+                Building baseTarget = findPrankBuilding(145f);
                 if(baseTarget != null){
                     state = State.CURIOUS;
-                    stateTimer = 65f;
+                    stateTimer = 50f;
                     target = baseTarget;
                     return;
                 }
@@ -149,8 +148,8 @@ public class BobAI extends AIController{
             }
 
             stateTimer -= Time.delta;
-            if(stateTimer <= 0f || unit.dst(moveGoal) < 16f){
-                idlePauseTimer = Mathf.chance(0.45f) ? Mathf.random(50f, 110f) : 0f;
+            if(stateTimer <= 0f || unit.dst(moveGoal) < 18f){
+                idlePauseTimer = Mathf.chance(0.45f) ? Mathf.random(45f, 100f) : 0f;
                 stateTimer = Mathf.random(160f, 300f);
                 pickWanderPoint();
             }
@@ -162,8 +161,9 @@ public class BobAI extends AIController{
             sprinting = false;
             if(bulletThreat || threatDist < 34f){
                 state = State.SKIDADDLE;
-                stateTimer = 150f;
+                stateTimer = 160f;
                 sprinting = true;
+                pickEscapeAwayFromBase(threatUnit);
                 return;
             }
 
@@ -196,8 +196,8 @@ public class BobAI extends AIController{
 
             if(target == null || !isTargetValid(target) || prankSwitchTimer <= 0f){
                 prankSwitchTimer = Mathf.random(95f, 145f);
-                Teamc nextTarget = findPrankBuilding(180f);
-                if(nextTarget == null && threatUnit != null && threatDist < 180f){
+                Teamc nextTarget = findPrankBuilding(175f);
+                if(nextTarget == null && threatUnit != null && threatDist < 175f){
                     nextTarget = threatUnit;
                 }
                 target = nextTarget;
@@ -206,7 +206,7 @@ public class BobAI extends AIController{
             if(target == null){
                 Building farBase = findPrankBuilding(700f);
                 if(farBase != null){
-                    moveGoal.set(farBase.x, farBase.y);
+                    snapToWalkable(farBase.x, farBase.y, moveGoal);
                     navigateTo(moveGoal, false, 0f);
                     faceMovement();
                 }else{
@@ -225,21 +225,21 @@ public class BobAI extends AIController{
 
             sprinting = bulletThreat || threatDist < 48f;
             if(bulletThreat){
-                escapePos.set(unit.x + dodgeVec.x * 85f, unit.y + dodgeVec.y * 85f);
-                navigateTo(escapePos, false, 0.14f);
+                snapToWalkable(unit.x + dodgeVec.x * 80f, unit.y + dodgeVec.y * 80f, escapePos);
+                navigateTo(escapePos, false, 0.22f);
             }else if(threatUnit != null && threatDist < 68f){
                 float away = threatUnit.angleTo(unit);
-                escapePos.set(unit.x + Angles.trnsx(away, 95f), unit.y + Angles.trnsy(away, 95f));
-                navigateTo(escapePos, false, 0.10f);
+                snapToWalkable(unit.x + Angles.trnsx(away, 95f), unit.y + Angles.trnsy(away, 95f), escapePos);
+                navigateTo(escapePos, false, 0.16f);
             }else{
                 float dst = unit.dst(target);
-                if(dst < 68f){
+                if(dst < 64f){
                     float away = target.angleTo(unit);
-                    escapePos.set(unit.x + Angles.trnsx(away, 80f), unit.y + Angles.trnsy(away, 80f));
-                    navigateTo(escapePos, false, 0f);
-                }else if(dst > 125f){
-                    moveGoal.set(target.x(), target.y());
-                    navigateTo(moveGoal, false, 0f);
+                    snapToWalkable(unit.x + Angles.trnsx(away, 85f), unit.y + Angles.trnsy(away, 85f), escapePos);
+                    navigateTo(escapePos, false, 0.08f);
+                }else if(dst > 140f){
+                    snapToWalkable(target.x(), target.y(), moveGoal);
+                    navigateTo(moveGoal, false, 0.06f);
                 }
             }
             faceTarget();
@@ -249,20 +249,19 @@ public class BobAI extends AIController{
 
             if(smokeBombTimer <= 0f && (threatDist < 68f || bulletThreat)){
                 sprinting = true;
-            }else if(threatDist > 130f && stateTimer < 70f){
+            }else if(threatDist > 140f && stateTimer < 70f){
                 sprinting = false;
             }
 
-            float awayAngle = threatUnit != null ? threatUnit.angleTo(unit) : unit.rotation;
             if(bulletThreat){
-                escapePos.set(unit.x + dodgeVec.x * 110f, unit.y + dodgeVec.y * 110f);
-            }else if(smokeBombTimer > 0f && unit.dst(moveGoal) > 24f){
-                escapePos.set(moveGoal);
+                snapToWalkable(unit.x + dodgeVec.x * 95f, unit.y + dodgeVec.y * 95f, escapePos);
+                navigateTo(escapePos, false, 0.25f);
             }else{
-                escapePos.set(unit.x + Angles.trnsx(awayAngle, 120f), unit.y + Angles.trnsy(awayAngle, 120f));
+                if(unit.dst(moveGoal) < 24f){
+                    pickEscapeAwayFromBase(threatUnit);
+                }
+                navigateTo(moveGoal, true, sprinting ? 0.25f : 0.12f);
             }
-
-            navigateTo(escapePos, true, sprinting ? 0.18f : 0.08f);
             faceMovement();
 
             stateTimer -= Time.delta;
@@ -287,9 +286,9 @@ public class BobAI extends AIController{
 
         float ang = unit.angleTo(stepGoal);
         if(preyWeave){
-            weavePhase += Time.delta * 0.14f;
-            ang += Mathf.sin(weavePhase) * 18f;
-            escapePos.set(unit.x + Angles.trnsx(ang, 40f), unit.y + Angles.trnsy(ang, 40f));
+            weavePhase += Time.delta * 0.12f;
+            float weaved = ang + Mathf.sin(weavePhase) * 16f;
+            escapePos.set(unit.x + Angles.trnsx(weaved, 36f), unit.y + Angles.trnsy(weaved, 36f));
             moveTo(escapePos, 0f);
         }else{
             moveTo(stepGoal, 0f);
@@ -298,6 +297,64 @@ public class BobAI extends AIController{
         if(extraPush > 0f){
             unit.vel.add(Angles.trnsx(ang, extraPush * Time.delta), Angles.trnsy(ang, extraPush * Time.delta));
         }
+    }
+
+    private void pickEscapeAwayFromBase(Unit threat){
+        float awayAngle;
+        if(computeBaseCenter(baseCenter)){
+            awayAngle = baseCenter.angleTo(unit) + Mathf.random(-35f, 35f);
+        }else if(threat != null){
+            awayAngle = threat.angleTo(unit) + Mathf.random(-35f, 35f);
+        }else{
+            awayAngle = Mathf.random(360f);
+        }
+        snapToWalkable(
+            unit.x + Angles.trnsx(awayAngle, 220f),
+            unit.y + Angles.trnsy(awayAngle, 220f),
+            moveGoal
+        );
+    }
+
+    private boolean computeBaseCenter(Vec2 out){
+        float sumX = 0f, sumY = 0f;
+        int count = 0;
+        for(Building b : Groups.build){
+            if(b.team == unit.team || !b.isValid()) continue;
+            if(unit.dst(b) > 320f) continue;
+            sumX += b.x;
+            sumY += b.y;
+            count++;
+        }
+        if(count == 0) return false;
+        out.set(sumX / count, sumY / count);
+        return true;
+    }
+
+    private void snapToWalkable(float wx, float wy, Vec2 out){
+        if(Vars.world == null){
+            out.set(wx, wy);
+            return;
+        }
+        Tile t = Vars.world.tileWorld(wx, wy);
+        if(t != null && !t.solid()){
+            out.set(t.worldx(), t.worldy());
+            return;
+        }
+        int cx = Mathf.clamp(Vars.world.toTile(wx), 0, Vars.world.width() - 1);
+        int cy = Mathf.clamp(Vars.world.toTile(wy), 0, Vars.world.height() - 1);
+        for(int r = 1; r <= 6; r++){
+            for(int dx = -r; dx <= r; dx++){
+                for(int dy = -r; dy <= r; dy++){
+                    if(Math.abs(dx) != r && Math.abs(dy) != r) continue;
+                    Tile nt = Vars.world.tile(cx + dx, cy + dy);
+                    if(nt != null && !nt.solid()){
+                        out.set(nt.worldx(), nt.worldy());
+                        return;
+                    }
+                }
+            }
+        }
+        out.set(unit.x, unit.y);
     }
 
     private boolean computeBulletDodge(){
@@ -405,17 +462,12 @@ public class BobAI extends AIController{
         return bestPriority != null ? bestPriority : bestAny;
     }
 
-    private void pickRepositionSpot(Unit threat){
-        float base = threat != null ? threat.angleTo(unit) + Mathf.random(-80f, 80f) : Mathf.random(360f);
-        moveGoal.set(unit.x + Angles.trnsx(base, 140f), unit.y + Angles.trnsy(base, 140f));
-    }
-
     private void pickWanderPoint(){
         if(Vars.world == null) return;
         if(Mathf.chance(0.45f)){
             Building b = findPrankBuilding(550f);
             if(b != null){
-                moveGoal.set(b.x + Mathf.range(45f), b.y + Mathf.range(45f));
+                snapToWalkable(b.x + Mathf.range(45f), b.y + Mathf.range(45f), moveGoal);
                 return;
             }
         }
@@ -428,7 +480,7 @@ public class BobAI extends AIController{
                 return;
             }
         }
-        moveGoal.set(unit.x + Mathf.range(70f), unit.y + Mathf.range(70f));
+        snapToWalkable(unit.x + Mathf.range(70f), unit.y + Mathf.range(70f), moveGoal);
     }
 
     private boolean isTargetValid(Teamc t){
@@ -443,4 +495,4 @@ public class BobAI extends AIController{
         if(state == State.PRANKSTER) return true;
         return state == State.CURIOUS && stateTimer <= 8f;
     }
-                        }
+            }
