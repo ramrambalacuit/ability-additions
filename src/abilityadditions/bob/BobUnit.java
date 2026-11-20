@@ -21,7 +21,6 @@ import mindustry.type.Weapon;
 public class BobUnit{
     public static UnitType bob;
     public static BasicBulletType snowballBullet;
-    public static BasicBulletType barrageSnowball;
 
     public static void load(){
         snowballBullet = new BasicBulletType(4.5f, 1f){{
@@ -44,35 +43,15 @@ public class BobUnit{
             collidesTeam = false;
         }};
 
-        barrageSnowball = new BasicBulletType(5.8f, 1f){{
-            width = 9f;
-            height = 9f;
-            lifetime = 46f;
-            shrinkX = 0f;
-            shrinkY = 0f;
-            frontColor = Color.white;
-            backColor = Color.valueOf("aee5ff");
-            lightColor = Color.valueOf("dff5ff");
-            trailColor = Color.valueOf("9bdfff");
-            trailLength = 7;
-            trailWidth = 1.8f;
-            knockback = 20f;
-            status = StatusEffects.freezing;
-            statusDuration = 120f;
-            hitEffect = AbilityEffects.snowballHit;
-            despawnEffect = AbilityEffects.snowballHit;
-            collidesTeam = false;
-        }};
-
         bob = new UnitType("bob"){
             {
                 localizedName = "Bob";
-                description = "A festive snow-dwelling prankster. Harmless until you annoy him.";
+                description = "A festive snow-dwelling prankster. Calmly trolls your base until annoyed.";
                 health = 5000f;
                 armor = 0f;
-                speed = 1.65f;
+                speed = 1.55f;
                 hitSize = 8f;
-                rotateSpeed = 6f;
+                rotateSpeed = 5f;
                 mechLegColor = Color.valueOf("d4e6f5");
                 lightColor = Color.valueOf("d8f3ff");
                 lightRadius = 35f;
@@ -128,11 +107,29 @@ public class BobUnit{
 
             @Override
             public boolean hittable(Unit unit){
+                if(unit.controller() instanceof BobAI ai && ai.isSmokeCloaked()){
+                    return false;
+                }
                 return true;
             }
 
             @Override
             public void draw(Unit unit){
+                boolean cloaked = unit.controller() instanceof BobAI ai && ai.isSmokeCloaked();
+
+                if(cloaked){
+                    Draw.z(Layer.groundUnit + 0.5f);
+                    if(region != null && region.found()){
+                        Draw.color(0.85f, 0.92f, 1f, 0.16f);
+                        Draw.rect(region, unit.x, unit.y, unit.rotation - 90f);
+                    }
+                    Draw.color(0.95f, 0.35f, 0.35f, 0.14f);
+                    Fill.circle(unit.x, unit.y, 2.5f);
+                    Draw.color();
+                    Draw.z();
+                    return;
+                }
+
                 super.draw(unit);
 
                 Draw.z(Layer.groundUnit + 0.5f);
@@ -164,4 +161,4 @@ public class BobUnit{
             }
         };
     }
-}
+} 
