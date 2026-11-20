@@ -67,6 +67,15 @@ public class AbilityEffects{
         Draw.color();
     });
 
+    public static final Effect salvoMuzzleSpark = new Effect(14f, e -> {
+        Draw.color(Color.white, e.color, e.fin());
+        Lines.stroke(1.4f * e.fout());
+        Angles.randLenVectors(e.id, 4, 3f + 10f * e.fin(), (x, y) -> {
+            Lines.lineAngle(e.x + x, e.y + y, e.rotation, 4f * e.fout());
+        });
+        Draw.color();
+    });
+
     public static final Effect chainArc = new Effect(14f, e -> {
         if(!(e.data instanceof Position target)) return;
 
@@ -135,22 +144,6 @@ public class AbilityEffects{
         Draw.color();
     });
 
-    public static final Effect repulsorCone = new Effect(20f, e -> {
-        Draw.color(e.color, Color.white, 0.4f * e.fout());
-        Lines.stroke(2.4f * e.fout());
-        for(int i = -2; i <= 2; i++){
-            float ang = e.rotation + i * 14f;
-            float dist = 12f + 110f * e.fin(Interp.pow2Out);
-            Lines.lineAngle(
-                e.x + Angles.trnsx(ang, dist * 0.35f),
-                e.y + Angles.trnsy(ang, dist * 0.35f),
-                ang,
-                16f * e.fout()
-            );
-        }
-        Draw.color();
-    });
-
     public static final Effect hunterMarkHit = new Effect(16f, e -> {
         Draw.color(e.color, Color.white, 0.5f);
         Lines.stroke(1.5f * e.fout());
@@ -159,10 +152,10 @@ public class AbilityEffects{
     });
 
     public static final Effect bobSmoke = new Effect(24f, e -> {
-        Draw.color(Color.lightGray, Color.white, 0.5f);
-        Draw.alpha(0.55f * e.fout());
+        Draw.color(Color.gray, Color.lightGray, 0.5f);
+        Draw.alpha(0.6f * e.fout());
         Angles.randLenVectors(e.id, 2, 2f + 6f * e.fin(), (x, y) -> {
-            Fill.circle(e.x + x, e.y + y, 2.2f * e.fout());
+            Fill.circle(e.x + x, e.y + y, 2.4f * e.fout());
         });
         Draw.color();
     });
@@ -193,16 +186,23 @@ public class AbilityEffects{
         Draw.color();
     });
 
-    public static final Effect smokeSnowBomb = new Effect(110f, e -> {
-        Draw.color(Color.white, Color.valueOf("cfefff"), 0.35f * e.fin());
-        Lines.stroke(2.4f * e.fout());
-        Lines.circle(e.x, e.y, 4f + 36f * e.fin(Interp.pow3Out));
+    public static final Effect smokeSnowBomb = new Effect(95f, e -> {
+        Draw.color(Color.lightGray, Color.darkGray, e.fin());
+        Angles.randLenVectors(e.id, 22, 4f + 36f * e.fin(Interp.pow3Out), (x, y) -> {
+            Draw.alpha(0.9f * e.fout(Interp.pow2In));
+            Fill.circle(e.x + x, e.y + y, (6.5f + 5.5f * e.fin()) * e.fout());
+        });
 
-        Angles.randLenVectors(e.id, 26, 6f + 38f * e.fin(Interp.pow2Out), (x, y) -> {
-            Draw.color(Color.white, Color.lightGray, 0.45f * e.fin());
+        Draw.color(Color.darkGray, Color.gray, e.fin());
+        Angles.randLenVectors(e.id + 1, 14, 2f + 26f * e.fin(Interp.pow2Out), (x, y) -> {
             Draw.alpha(0.85f * e.fout());
-            Fill.circle(e.x + x, e.y + y, (6f + 6f * e.fin()) * e.fout());
+            Fill.circle(e.x + x, e.y + y, (8f + 4f * e.fin()) * e.fout());
+        });
+
+        Draw.color(Color.white);
+        Angles.randLenVectors(e.id + 2, 10, 6f + 40f * e.fin(Interp.pow2Out), (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, 2.0f * e.fout());
         });
         Draw.color();
     });
-                    }
+            }
