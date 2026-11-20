@@ -1,396 +1,118 @@
-package abilityadditions.bob;
+package abilityadditions.content;
 
-import abilityadditions.content.AbilityEffects;
+import arc.graphics.Color;
+import arc.graphics.g2d.Draw;
+import arc.graphics.g2d.Fill;
+import arc.graphics.g2d.Lines;
 import arc.math.Angles;
-import arc.math.Mathf;
-import arc.math.geom.Vec2;
-import arc.util.Time;
-import mindustry.Vars;
-import mindustry.content.Blocks;
-import mindustry.entities.units.AIController;
-import mindustry.game.Team;
-import mindustry.gen.Building;
-import mindustry.gen.Bullet;
-import mindustry.gen.Groups;
-import mindustry.gen.Player;
-import mindustry.gen.Teamc;
-import mindustry.gen.Unit;
-import mindustry.world.Tile;
+import arc.math.Interp;
+import mindustry.entities.Effect;
 
-public class BobAI extends AIController{
-    public enum State{
-        NEUTRAL,
-        CURIOUS,
-        PRANKSTER,
-        SKIDADDLE
-    }
+public class AbilityEffects{
 
-    private State state = State.NEUTRAL;
-    private float stateTimer = 0f;
-    private float neutralRunTimer = 0f;
-    private float weaveTimer = 0f;
-    private float weaveAngle = 0f;
-    private float dashCooldown = 0f;
-    private float smokeTimer = 0f;
-    private float sweatTimer = 0f;
-    private float lastHealth = -1f;
-    private boolean usedBarrage = false;
-    private boolean sprinting = false;
+    public static final Effect abilityActivate = new Effect(22f, e -> {
+        float size = Math.max(1f, e.rotation);
+        float maxRad = 4.5f * size;
 
-    private final Vec2 wanderPos = new Vec2();
-    private final Vec2 escapePos = new Vec2();
-    private final Vec2 dodgeVec = new Vec2();
+        Draw.color(e.color, Color.white, 0.35f * e.fout());
+        Lines.stroke((1.3f + 0.35f * size) * e.fout());
+        Lines.circle(e.x, e.y, 1.5f + maxRad * e.fin(Interp.pow3Out));
 
-    @Override
-    public void updateUnit(){
-        if(unit == null || !unit.isValid()) return;
+        int sparks = Math.round(4 + 2 * size);
+        Angles.randLenVectors(e.id, sparks, 2f + maxRad * 1.15f * e.fin(Interp.pow2Out), (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, (1.0f + 0.2f * size) * e.fout());
+        });
+        Draw.color();
+    });
 
-        if(lastHealth < 0f){
-            lastHealth = unit.health;
-            pickRandomSnowPoint();
-        }
+    public static final Effect activeTurretSpark = new Effect(18f, e -> {
+        float size = Math.max(1f, e.rotation);
+        Draw.color(e.color, Color.white, 0.45f);
+        Angles.randLenVectors(e.id, 2, 2f + (5f * size) * e.fin(), (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, (1.1f + 0.15f * size) * e.fout());
+        });
+        Draw.color();
+    });
 
-        if(dashCooldown > 0f){
-            dashCooldown = Math.max(0f, dashCooldown - Time.delta);
-        }
+    public static final Effect meltdownSmoke = new Effect(30f, e -> {
+        float size = Math.max(1f, e.rotation);
+        Draw.color(Color.darkGray, e.color, 0.25f * e.fout());
+        Draw.alpha(0.65f * e.fout());
+        Angles.randLenVectors(e.id, 2, 2f + (6f * size) * e.fin(), (x, y) -> {
+            Fill.circle(e.x + x, e.y + y + 4f * e.fin(), (1.6f + 0.4f * size) * e.fout());
+        });
+        Draw.color();
+    });
 
-        // Check if damaged by a stray bullet
-        boolean wasHit = unit.health < lastHealth - 0.1f;
-        lastHealth = unit.health;
+    public static final Effect empoweredTrail = new Effect(14f, e -> {
+        Draw.color(e.color, Color.white, 0.3f * e.fout());
+        Fill.circle(e.x, e.y, 1.8f * e.fout());
 
-        // 50% HP Ability: Cancel Prankster mode -> crazy knockback snowball barrage -> sprint away
-        if(!usedBarrage && unit.health <= unit.maxHealth * 0.5f){
-            triggerDesperationBarrage();
-            return;
-        }
+        Lines.stroke(1.0f * e.fout());
+        Lines.lineAngle(e.x, e.y, e.rotation + 180f, 4f * e.fout());
+        Draw.color();
+    });
 
-        Unit nearestPlayerUnit = findNearestPlayerUnit();
-        boolean bulletThreat = computeBulletDodge();
+    public static final Effect empoweredHit = new Effect(18f, e -> {
+        Draw.color(e.color, Color.white, 0.4f * e.fout());
+        Lines.stroke(1.5f * e.fout());
+        Lines.circle(e.x, e.y, 2f + 10f * e.fin(Interp.pow3Out));
 
-        if(wasHit){
-            state = State.SKIDADDLE;
-            stateTimer = 240f;
-            sprinting = true;
-            target = null;
-        }
+        Angles.randLenVectors(e.id, 6, 2f + 13f * e.fin(Interp.pow2Out), (x, y) -> {
+            Lines.stroke(1.1f * e.fout());
+            Lines.lineAngle(e.x + x, e.y + y, Angles.angle(x, y), 3f * e.fout());
+        });
+        Draw.color();
+    });
 
-        updateStateLogic(nearestPlayerUnit, bulletThreat);
-        updateParticles();
-        updateWeapons();
-    }
+    public static final Effect bobSmoke = new Effect(24f, e -> {
+        Draw.color(Color.lightGray, Color.white, 0.5f);
+        Draw.alpha(0.5f * e.fout());
+        Angles.randLenVectors(e.id, 2, 2f + 6f * e.fin(), (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, 2.2f * e.fout());
+        });
+        Draw.color();
+    });
 
-    private void triggerDesperationBarrage(){
-        usedBarrage = true;
-        state = State.SKIDADDLE;
-        stateTimer = 300f;
-        sprinting = true;
+    public static final Effect bobSweat = new Effect(22f, e -> {
+        Draw.color(Color.valueOf("6fd6ff"), Color.white, 0.35f);
+        Angles.randLenVectors(e.id, 2, 3f + 9f * e.fin(Interp.pow2Out), (x, y) -> {
+            Fill.circle(e.x + x, e.y + Math.abs(y) + 3f * e.fin() - 5f * e.fin(Interp.pow2In), 1.4f * e.fout());
+        });
+        Draw.color();
+    });
 
-        Teamc threat = findNearestPlayerUnit();
-        if(threat == null){
-            threat = findNearestPrankTarget(260f);
-        }
+    public static final Effect bobDash = new Effect(18f, e -> {
+        Draw.color(Color.white, Color.valueOf("b8ecff"), e.fin());
+        Lines.stroke(1.6f * e.fout());
+        Lines.circle(e.x, e.y, 2f + 11f * e.fin(Interp.pow2Out));
+        Angles.randLenVectors(e.id, 6, 3f + 12f * e.fin(), (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, 1.8f * e.fout());
+        });
+        Draw.color();
+    });
 
-        float baseAngle = threat != null ? unit.angleTo(threat) : unit.rotation;
-        for(int i = 0; i < 6; i++){
-            float offset = Mathf.lerp(-28f, 28f, i / 5f) + Mathf.range(4f);
-            BobUnit.barrageSnowball.create(unit, unit.team, unit.x, unit.y, baseAngle + offset);
-        }
+    public static final Effect snowballHit = new Effect(16f, e -> {
+        Draw.color(Color.white, Color.valueOf("cfefff"), e.fin());
+        Angles.randLenVectors(e.id, 6, 2f + 10f * e.fin(Interp.pow2Out), (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, 1.7f * e.fout());
+        });
+        Draw.color();
+    });
 
-        AbilityEffects.bobDash.at(unit.x, unit.y);
-        float awayAngle = baseAngle + 180f;
-        unit.vel.add(Angles.trnsx(awayAngle, 3.2f), Angles.trnsy(awayAngle, 3.2f));
-        target = null;
-    }
+    // Big blinding Smoke Snow Bomb cloud!
+    public static final Effect smokeSnowBomb = new Effect(130f, 160f, e -> {
+        Draw.color(Color.valueOf("dce6ee"), Color.white, 0.35f * e.fout());
+        Draw.alpha(0.88f * e.fout(Interp.pow2In));
+        Angles.randLenVectors(e.id, 26, 8f + 56f * e.fin(Interp.pow3Out), (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, 16f * e.fout(Interp.pow2In) + 5f);
+        });
 
-    private void updateStateLogic(Unit playerUnit, boolean bulletThreat){
-        float playerDist = playerUnit != null ? unit.dst(playerUnit) : Float.MAX_VALUE;
-
-        if(state == State.NEUTRAL){
-            sprinting = false;
-            target = null;
-
-            stateTimer -= Time.delta;
-            if(stateTimer <= 0f){
-                neutralRunTimer = Mathf.chance(0.35f) ? Mathf.random(70f, 130f) : 0f;
-                stateTimer = Mathf.random(120f, 240f);
-                pickRandomSnowPoint();
-            }
-            if(neutralRunTimer > 0f){
-                neutralRunTimer -= Time.delta;
-            }
-
-            if(bulletThreat || playerDist < 48f){
-                state = State.SKIDADDLE;
-                stateTimer = 180f;
-                sprinting = true;
-                return;
-            }
-
-            // Spot player, unit, or building nearby -> Silent Curious stare!
-            Teamc nearby = playerDist < 135f ? playerUnit : findNearestPrankTarget(115f);
-            if(nearby != null){
-                state = State.CURIOUS;
-                stateTimer = 75f; // ~1.25s silent stare
-                target = nearby;
-                return;
-            }
-
-            if(unit.dst(wanderPos) < 16f){
-                pickRandomSnowPoint();
-            }
-
-            boolean running = neutralRunTimer > 0f;
-            moveWithPreyWeave(wanderPos, running ? 0.85f : 0.52f, running);
-            faceMovement();
-
-        }else if(state == State.CURIOUS){
-            sprinting = false;
-            if(target == null || !isTargetValid(target) || bulletThreat){
-                state = State.SKIDADDLE;
-                stateTimer = 150f;
-                sprinting = bulletThreat;
-                return;
-            }
-
-            unit.vel.scl(0.7f);
-            faceTarget();
-
-            stateTimer -= Time.delta;
-            if(stateTimer <= 0f){
-                // Fire 1 snowball, then either go Prankster mode or Skidaddle
-                if(Mathf.chance(0.65f)){
-                    state = State.PRANKSTER;
-                    stateTimer = Mathf.random(240f, 420f);
-                }else{
-                    state = State.SKIDADDLE;
-                    stateTimer = Mathf.random(150f, 240f);
-                    sprinting = false;
-                }
-            }
-
-        }else if(state == State.PRANKSTER){
-            if(target == null || !isTargetValid(target) || unit.dst(target) > 220f){
-                target = findNearestPrankTarget(185f);
-            }
-            if(target == null){
-                state = State.NEUTRAL;
-                stateTimer = 120f;
-                return;
-            }
-
-            stateTimer -= Time.delta;
-            if(stateTimer <= 0f){
-                state = State.SKIDADDLE;
-                stateTimer = 160f;
-                sprinting = false;
-                return;
-            }
-
-            // Back-dash if player gets too close (2.5s cooldown)
-            if(playerUnit != null && playerDist < 62f && dashCooldown <= 0f){
-                dashCooldown = 150f; // 2.5 seconds
-                float away = playerUnit.angleTo(unit);
-                unit.vel.add(Angles.trnsx(away, 3.6f), Angles.trnsy(away, 3.6f));
-                AbilityEffects.bobDash.at(unit.x, unit.y);
-            }
-
-            // Smoothly dodge incoming bullets while keeping comfortable distance!
-            sprinting = bulletThreat || playerDist < 52f;
-            if(bulletThreat){
-                escapePos.set(unit.x + dodgeVec.x * 90f, unit.y + dodgeVec.y * 90f);
-                moveTo(escapePos, 0f);
-            }else{
-                float dst = unit.dst(target);
-                if(dst < 80f){
-                    float away = target.angleTo(unit);
-                    escapePos.set(unit.x + Angles.trnsx(away, 85f), unit.y + Angles.trnsy(away, 85f));
-                    moveTo(escapePos, 0f);
-                    unit.vel.scl(0.85f);
-                }else if(dst > 145f){
-                    moveTo(target, 110f);
-                    unit.vel.scl(0.7f);
-                }else{
-                    circle(target, 110f);
-                    unit.vel.scl(0.65f);
-                }
-            }
-            faceTarget();
-
-        }else if(state == State.SKIDADDLE){
-            target = null;
-
-            // Escalate to Sweaty Sprint if player chases closely or bullet threatens
-            if(playerDist < 105f || bulletThreat){
-                sprinting = true;
-                stateTimer = Math.max(stateTimer, 150f);
-            }else if(playerDist > 175f && stateTimer < 60f){
-                sprinting = false;
-            }
-
-            Teamc chaser = playerUnit != null ? playerUnit : findNearestPrankTarget(160f);
-            float awayAngle = chaser != null ? chaser.angleTo(unit) : unit.rotation;
-
-            if(bulletThreat){
-                escapePos.set(unit.x + dodgeVec.x * 110f, unit.y + dodgeVec.y * 110f);
-            }else{
-                escapePos.set(unit.x + Angles.trnsx(awayAngle, 120f), unit.y + Angles.trnsy(awayAngle, 120f));
-            }
-
-            moveWithPreyWeave(escapePos, sprinting ? 1.0f : 0.85f, true);
-            faceMovement();
-
-            stateTimer -= Time.delta;
-            if(stateTimer <= 0f){
-                // Glance back briefly when calm
-                if(chaser != null){
-                    unit.rotation = unit.angleTo(chaser);
-                }
-                sprinting = false;
-                state = State.NEUTRAL;
-                stateTimer = 140f;
-                pickRandomSnowPoint();
-            }
-        }
-    }
-
-    private void moveWithPreyWeave(Vec2 goal, float speedScale, boolean weave){
-        if(weave){
-            weaveTimer -= Time.delta;
-            if(weaveTimer <= 0f){
-                weaveTimer = Mathf.random(12f, 26f);
-                weaveAngle = Mathf.range(42f);
-            }
-            float baseAngle = unit.angleTo(goal);
-            escapePos.set(
-                unit.x + Angles.trnsx(baseAngle + weaveAngle, 80f),
-                unit.y + Angles.trnsy(baseAngle + weaveAngle, 80f)
-            );
-            moveTo(escapePos, 0f);
-        }else{
-            moveTo(goal, 0f);
-        }
-        unit.vel.scl(speedScale);
-    }
-
-    private boolean computeBulletDodge(){
-        dodgeVec.setZero();
-        boolean danger = false;
-
-        for(Bullet b : Groups.bullet){
-            if(b.team == unit.team) continue;
-            float dst = unit.dst(b);
-            if(dst > 85f) continue;
-
-            float toBob = b.angleTo(unit);
-            float bulletAng = b.vel.angle();
-            if(Angles.within(toBob, bulletAng, 38f)){
-                float side = Angles.angleDist(toBob, bulletAng) >= 0f ? 90f : -90f;
-                dodgeVec.add(Angles.trnsx(bulletAng + side, 1f), Angles.trnsy(bulletAng + side, 1f));
-                danger = true;
-            }
-        }
-        if(danger && !dodgeVec.isZero()){
-            dodgeVec.nor();
-        }
-        return danger;
-    }
-
-    private void updateParticles(){
-        boolean isRunning = state == State.SKIDADDLE || (state == State.NEUTRAL && neutralRunTimer > 0f);
-        if(isRunning || sprinting){
-            smokeTimer += Time.delta;
-            float interval = sprinting ? 4f : 8f;
-            if(smokeTimer >= interval){
-                smokeTimer = 0f;
-                float back = unit.rotation + 180f;
-                AbilityEffects.bobSmoke.at(
-                    unit.x + Angles.trnsx(back, 4f),
-                    unit.y + Angles.trnsy(back, 4f)
-                );
-            }
-        }
-
-        if(sprinting){
-            sweatTimer += Time.delta;
-            if(sweatTimer >= 9f){
-                sweatTimer = 0f;
-                AbilityEffects.bobSweat.at(unit.x, unit.y + 4f);
-            }
-        }
-    }
-
-    private Unit findNearestPlayerUnit(){
-        Unit best = null;
-        float bestDst = Float.MAX_VALUE;
-        for(Player p : Groups.player){
-            Unit u = p.unit();
-            if(u == null || !u.isValid() || u == unit) continue;
-            float d = unit.dst(u);
-            if(d < bestDst){
-                bestDst = d;
-                best = u;
-            }
-        }
-        return best;
-    }
-
-    private Teamc findNearestPrankTarget(float range){
-        Teamc best = null;
-        float bestDst = range;
-
-        Unit playerUnit = findNearestPlayerUnit();
-        if(playerUnit != null && unit.dst(playerUnit) < bestDst){
-            best = playerUnit;
-            bestDst = unit.dst(playerUnit);
-        }
-
-        for(Unit u : Groups.unit){
-            if(u == unit || !u.isValid() || u.team == unit.team) continue;
-            float d = unit.dst(u);
-            if(d < bestDst){
-                bestDst = d;
-                best = u;
-            }
-        }
-
-        if(best == null){
-            for(Building b : Groups.build){
-                if(b.team == unit.team || !b.isValid()) continue;
-                float d = unit.dst(b);
-                if(d < bestDst){
-                    bestDst = d;
-                    best = b;
-                }
-            }
-        }
-
-        return best;
-    }
-
-    private boolean isTargetValid(Teamc t){
-        if(t instanceof Unit u) return u.isValid() && !u.dead;
-        if(t instanceof Building b) return b.isValid();
-        return false;
-    }
-
-    private void pickRandomSnowPoint(){
-        if(Vars.world == null) return;
-        for(int i = 0; i < 16; i++){
-            float rx = unit.x + Mathf.range(110f);
-            float ry = unit.y + Mathf.range(110f);
-            Tile tile = Vars.world.tileWorld(rx, ry);
-            if(tile != null && tile.floor() == Blocks.snow && !tile.solid()){
-                wanderPos.set(tile.worldx(), tile.worldy());
-                return;
-            }
-        }
-        wanderPos.set(unit.x + Mathf.range(70f), unit.y + Mathf.range(70f));
-    }
-
-    @Override
-    public boolean shouldShoot(){
-        if(target == null || !isTargetValid(target)) return false;
-        if(state == State.PRANKSTER) return true;
-        return state == State.CURIOUS && stateTimer <= 8f;
-    }
-              }
+        Draw.color(Color.white, Color.valueOf("bfe8ff"), e.fin());
+        Draw.alpha(0.7f * e.fout());
+        Angles.randLenVectors(e.id + 1, 14, 6f + 48f * e.fin(Interp.pow2Out), (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, 3.2f * e.fout());
+        });
+        Draw.color();
+    });
+} 
