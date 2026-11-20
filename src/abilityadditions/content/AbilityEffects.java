@@ -100,4 +100,17 @@ public class AbilityEffects{
         });
         Draw.color();
     });
-    }
+
+    public static final Effect smokeSnowBomb = new Effect(110f, e -> {
+        Draw.color(Color.white, Color.valueOf("cfefff"), 0.35f * e.fin());
+        Lines.stroke(2.4f * e.fout());
+        Lines.circle(e.x, e.y, 4f + 36f * e.fin(Interp.pow3Out));
+
+        Angles.randLenVectors(e.id, 26, 6f + 38f * e.fin(Interp.pow2Out), (x, y) -> {
+            Draw.color(Color.white, Color.lightGray, 0.45f * e.fin());
+            Draw.alpha(0.85f * e.fout());
+            Fill.circle(e.x + x, e.y + y, (6f + 6f * e.fin()) * e.fout());
+        });
+        Draw.color();
+    });
+                     }
