@@ -1,117 +1,77 @@
 package abilityadditions.core;
 
-import arc.math.Mathf;
+public class AbilityTrigger{
 
-public interface AbilityTrigger{
-    boolean checkAndAdvance(AbilityManager.TurretState state);
-
-    String describe();
-
-    default float progress(AbilityManager.TurretState state){
-        return 0f;
+    public enum TriggerType{
+        EVERY_N_SHOTS,
+        CHANCE_PER_CYCLE,
+        CONTINUOUS_HEAT,
+        STAGE_DURATION,
+        CONFIRMED_UNIT_HITS,
+        INTERCEPT_COUNT,
+        TRACTOR_LOCK
     }
 
-    default String barText(AbilityManager.TurretState state){
-        return describe();
+    public TriggerType type;
+    public int everyNShots;
+    public float chance;
+    public float cooldownSeconds;
+    public float heatSeconds;
+    public float stage1Seconds;
+    public float stage2Seconds;
+    public float decayDelaySeconds;
+
+    public static AbilityTrigger everyNShots(int everyNShots, float cooldownSeconds){
+        AbilityTrigger t = new AbilityTrigger();
+        t.type = TriggerType.EVERY_N_SHOTS;
+        t.everyNShots = Math.max(1, everyNShots);
+        t.cooldownSeconds = Math.max(0f, cooldownSeconds);
+        return t;
     }
 
-    static AbilityTrigger everyShots(int requiredShots){
-        return new AbilityTrigger(){
-            @Override
-            public boolean checkAndAdvance(AbilityManager.TurretState state){
-                state.shotCount++;
-                if(state.shotCount >= requiredShots){
-                    state.shotCount = 0;
-                    return true;
-                }
-                return false;
-            }
-
-            @Override
-            public String describe(){
-                return "Every " + requiredShots + " shots";
-            }
-
-            @Override
-            public float progress(AbilityManager.TurretState state){
-                return state == null ? 0f : (float)state.shotCount / requiredShots;
-            }
-
-            @Override
-            public String barText(AbilityManager.TurretState state){
-                int count = state == null ? 0 : state.shotCount;
-                return count + "/" + requiredShots;
-            }
-        };
+    public static AbilityTrigger chancePerCycle(float chance, float cooldownSeconds){
+        AbilityTrigger t = new AbilityTrigger();
+        t.type = TriggerType.CHANCE_PER_CYCLE;
+        t.chance = Math.max(0f, Math.min(1f, chance));
+        t.cooldownSeconds = Math.max(0f, cooldownSeconds);
+        return t;
     }
 
-    static AbilityTrigger chance(float probability){
-        return new AbilityTrigger(){
-            @Override
-            public boolean checkAndAdvance(AbilityManager.TurretState state){
-                return Mathf.chance(probability);
-            }
-
-            @Override
-            public String describe(){
-                return Math.round(probability * 100f) + "% chance per shot";
-            }
-
-            @Override
-            public String barText(AbilityManager.TurretState state){
-                return Math.round(probability * 100f) + "% chance";
-            }
-        };
+    public static AbilityTrigger continuousHeat(float heatSeconds, float cooldownSeconds){
+        AbilityTrigger t = new AbilityTrigger();
+        t.type = TriggerType.CONTINUOUS_HEAT;
+        t.heatSeconds = Math.max(0.5f, heatSeconds);
+        t.cooldownSeconds = Math.max(0f, cooldownSeconds);
+        return t;
     }
 
-    static AbilityTrigger chancePerCycle(float probability, float cycleCooldownSeconds){
-        return new AbilityTrigger(){
-            @Override
-            public boolean checkAndAdvance(AbilityManager.TurretState state){
-                if(state.triggerCooldown > 0f) return false;
-                state.triggerCooldown = cycleCooldownSeconds * 60f;
-                return Mathf.chance(probability);
-            }
-
-            @Override
-            public String describe(){
-                return Math.round(probability * 100f) + "% chance per volley";
-            }
-
-            @Override
-            public String barText(AbilityManager.TurretState state){
-                return Math.round(probability * 100f) + "% / volley";
-            }
-        };
+    public static AbilityTrigger stageDuration(float stage1Seconds, float stage2Seconds, float decayDelaySeconds){
+        AbilityTrigger t = new AbilityTrigger();
+        t.type = TriggerType.STAGE_DURATION;
+        t.stage1Seconds = Math.max(0.5f, stage1Seconds);
+        t.stage2Seconds = Math.max(0.5f, stage2Seconds);
+        t.decayDelaySeconds = Math.max(0.1f, decayDelaySeconds);
+        return t;
     }
 
-    static AbilityTrigger chanceOrShots(float probability, int maxShots){
-        return new AbilityTrigger(){
-            @Override
-            public boolean checkAndAdvance(AbilityManager.TurretState state){
-                state.shotCount++;
-                if(state.shotCount >= maxShots || Mathf.chance(probability)){
-                    state.shotCount = 0;
-                    return true;
-                }
-                return false;
-            }
+    public static AbilityTrigger confirmedUnitHits(int hitsRequired){
+        AbilityTrigger t = new AbilityTrigger();
+        t.type = TriggerType.CONFIRMED_UNIT_HITS;
+        t.everyNShots = Math.max(1, hitsRequired);
+        return t;
+    }
 
-            @Override
-            public String describe(){
-                return Math.round(probability * 100f) + "% chance (guaranteed every " + maxShots + " shots)";
-            }
+    public static AbilityTrigger interceptCount(int everyNIntercepts){
+        AbilityTrigger t = new AbilityTrigger();
+        t.type = TriggerType.INTERCEPT_COUNT;
+        t.everyNShots = Math.max(1, everyNIntercepts);
+        return t;
+    }
 
-            @Override
-            public float progress(AbilityManager.TurretState state){
-                return state == null ? 0f : (float)state.shotCount / maxShots;
-            }
-
-            @Override
-            public String barText(AbilityManager.TurretState state){
-                int count = state == null ? 0 : state.shotCount;
-                return count + "/" + maxShots;
-            }
-        };
+    public static AbilityTrigger tractorLock(float lockSeconds){
+        AbilityTrigger t = new AbilityTrigger();
+        t.type = TriggerType.TRACTOR_LOCK;
+        t.heatSeconds = Math.max(0.5f, lockSeconds);
+        return t;
     }
 }
