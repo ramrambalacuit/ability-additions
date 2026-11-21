@@ -1,337 +1,97 @@
 package abilityadditions.core;
 
-import mindustry.type.StatusEffect;
+import arc.graphics.*;
+import mindustry.type.*;
 
 public class AbilityProfile{
-    public enum Mode{
-        OVERDRIVE_RUSH,
-        MISSILE_SWARM,
-        CHAIN_LIGHTNING,
-        SEISMIC_MORTAR,
-        HEAT_RAMP,
-        SALVO_STAGES,
-        RAIL_ECHO,
-        CARPET_BOMBLETS,
-        ECHO_KICK,
-        HUNTER_MARK
+
+    public enum AbilityId{
+        DUO_OVERDRIVE_RUSH,
+        SCATTER_SNAKE_SWARM,
+        ARC_STATIC_CHAIN,
+        HAIL_SEISMIC_MORTAR,
+        SCORCH_THERMAL_RAMP,
+        SALVO_ESCALATING_BARREL,
+        LANCER_RAIL_ECHO,
+        RIPPLE_CARPET_BOMBLETS,
+        FUSE_ECHO_KICK,
+        SWARMER_HUNTERS_MARK,
+        WAVE_ALCHEMICAL_MONSOON,
+        TSUNAMI_TIDAL_WALL,
+        PARALLAX_GRAVITY_SLAM,
+        SEGMENT_AEGIS_PRISM,
+        FRAGMENT_STATIC_INTERCEPTOR,
+        CYCLONE_GALE_RICOCHET,
+        SPECTRE_SINGULARITY_ORB,
+        MELTDOWN_GRANITE_BLAST,
+        FORESHADOW_APEX_EXECUTION
     }
 
-    public final Mode mode;
-    public final String abilityName;
-    public final AbilityTrigger trigger;
-    public final float durationTicks;
-    public final float damageMultiplier;
-    public final float fireRateMultiplier;
-    public final float bulletSpeedMultiplier;
-    public final float rangeMultiplier;
-    public final float overheatTicks;
-    public final float meltdownTicks;
-    public final float heatGainPerShot;
-    public final float heatCoolPerSecond;
-    public final int chainTargets;
-    public final float chainRadius;
-    public final float chainDamageRatio;
-    public final float pullRadius;
-    public final float pullStrength;
-    public final float stage2Ticks;
-    public final float stage3Ticks;
-    public final float stage2FireRate;
-    public final float stage2Speed;
-    public final float stage3FireRate;
-    public final float stage3Speed;
-    public final float stage3Range;
-    public final StatusEffect debuff;
-    public final StatusEffect secondaryDebuff;
-    public final float debuffDurationTicks;
+    public AbilityId id;
+    public String turretName;
+    public String abilityName;
+    public String description;
+    public Color accentColor = Color.gold.cpy();
 
-    private AbilityProfile(
-        Mode mode,
-        String abilityName,
-        AbilityTrigger trigger,
-        float durationSeconds,
-        float damageMultiplier,
-        float fireRateMultiplier,
-        float bulletSpeedMultiplier,
-        float rangeMultiplier,
-        float overheatSeconds,
-        float meltdownSeconds,
-        float heatGainPerShot,
-        float heatCoolPerSecond,
-        int chainTargets,
-        float chainRadius,
-        float chainDamageRatio,
-        float pullRadius,
-        float pullStrength,
-        float stage2Seconds,
-        float stage3AdditionalSeconds,
-        float stage2FireRate,
-        float stage2Speed,
-        float stage3FireRate,
-        float stage3Speed,
-        float stage3Range,
-        StatusEffect debuff,
-        StatusEffect secondaryDebuff,
-        float debuffDurationSeconds
-    ){
-        this.mode = mode;
-        this.abilityName = abilityName;
-        this.trigger = trigger;
-        this.durationTicks = durationSeconds * 60f;
-        this.damageMultiplier = damageMultiplier;
-        this.fireRateMultiplier = fireRateMultiplier;
-        this.bulletSpeedMultiplier = bulletSpeedMultiplier;
-        this.rangeMultiplier = rangeMultiplier;
-        this.overheatTicks = overheatSeconds * 60f;
-        this.meltdownTicks = meltdownSeconds * 60f;
-        this.heatGainPerShot = heatGainPerShot;
-        this.heatCoolPerSecond = heatCoolPerSecond;
-        this.chainTargets = chainTargets;
-        this.chainRadius = chainRadius;
-        this.chainDamageRatio = chainDamageRatio;
-        this.pullRadius = pullRadius;
-        this.pullStrength = pullStrength;
-        this.stage2Ticks = stage2Seconds * 60f;
-        this.stage3Ticks = (stage2Seconds + stage3AdditionalSeconds) * 60f;
-        this.stage2FireRate = stage2FireRate;
-        this.stage2Speed = stage2Speed;
-        this.stage3FireRate = stage3FireRate;
-        this.stage3Speed = stage3Speed;
-        this.stage3Range = stage3Range;
-        this.debuff = debuff;
-        this.secondaryDebuff = secondaryDebuff;
-        this.debuffDurationTicks = debuffDurationSeconds * 60f;
-    }
+    public AbilityTrigger trigger;
 
-    public static AbilityProfile overdriveRush(
-        String abilityName, AbilityTrigger trigger, float durationSeconds,
-        float damageMultiplier, float fireRateMultiplier, float bulletSpeedMultiplier,
-        StatusEffect debuff, float debuffDurationSeconds
-    ){
-        return new AbilityProfile(
-            Mode.OVERDRIVE_RUSH, abilityName, trigger,
-            durationSeconds, damageMultiplier, fireRateMultiplier, bulletSpeedMultiplier, 1f,
-            0f, 0f, 0f, 0f, 0, 0f, 0f, 0f, 0f,
-            0f, 0f, 1f, 1f, 1f, 1f, 1f,
-            debuff, null, debuffDurationSeconds
-        );
-    }
+    // General ability timings
+    public float activeDuration = 0f;
+    public float chargeDuration = 0f;
+    public float meltdownDuration = 0f;
+    public boolean canTurnWhileCharging = false;
+    public boolean lockRotationWhileActive = false;
 
-    public static AbilityProfile missileSwarm(
-        String abilityName, AbilityTrigger trigger, float enhancerSeconds,
-        float missileDamageMultiplier, float meltdownSeconds,
-        StatusEffect debuff, float debuffDurationSeconds
-    ){
-        return new AbilityProfile(
-            Mode.MISSILE_SWARM, abilityName, trigger,
-            enhancerSeconds, missileDamageMultiplier, 1f, 1f, 1f,
-            0f, meltdownSeconds, 0f, 0f, 0, 0f, 0f, 0f, 0f,
-            0f, 0f, 1f, 1f, 1f, 1f, 1f,
-            debuff, null, debuffDurationSeconds
-        );
-    }
+    // Stat multipliers
+    public float damageMultiplier = 1f;
+    public float fireRateMultiplier = 1f;
+    public float bulletSpeedMultiplier = 1f;
+    public float rangeMultiplier = 1f;
+    public float inaccuracyMultiplier = 1f;
 
-    public static AbilityProfile chainLightning(
-        String abilityName, AbilityTrigger trigger, float mainDamageMultiplier,
-        int chainTargets, float chainRadius, float chainDamageRatio,
-        StatusEffect debuff, float debuffDurationSeconds
-    ){
-        return new AbilityProfile(
-            Mode.CHAIN_LIGHTNING, abilityName, trigger,
-            0f, mainDamageMultiplier, 1f, 1f, 1f,
-            0f, 0f, 0f, 0f, chainTargets, chainRadius, chainDamageRatio, 0f, 0f,
-            0f, 0f, 1f, 1f, 1f, 1f, 1f,
-            debuff, null, debuffDurationSeconds
-        );
-    }
+    // Stage tuning (Salvo)
+    public float stage2FireRateMult = 1f;
+    public float stage2SpeedMult = 1f;
+    public float stage2InaccuracyMult = 1f;
+    public float stage3FireRateMult = 1f;
+    public float stage3SpeedMult = 1f;
+    public float stage3RangeMult = 1f;
+    public float stage3InaccuracyMult = 1f;
+    public float stage3HoldDuration = 5f;
 
-    public static AbilityProfile seismicMortar(
-        String abilityName, AbilityTrigger trigger, float damageMultiplier,
-        float pullRadius, float pullStrength,
-        StatusEffect debuff, float debuffDurationSeconds
-    ){
-        return new AbilityProfile(
-            Mode.SEISMIC_MORTAR, abilityName, trigger,
-            0f, damageMultiplier, 1f, 1f, 1f,
-            0f, 0f, 0f, 0f, 0, 0f, 0f, pullRadius, pullStrength,
-            0f, 0f, 1f, 1f, 1f, 1f, 1f,
-            debuff, null, debuffDurationSeconds
-        );
-    }
+    // Status names (resolved after mod load)
+    public String primaryStatusEffect;
+    public float primaryStatusDuration = 2.5f;
+    public String secondaryStatusEffect;
+    public String tertiaryStatusEffect;
+    public float secondaryStatusDuration = 5f;
 
-    public static AbilityProfile heatRamp(
-        String abilityName, float maxDamageMultiplier, float maxFireRateMultiplier,
-        float overheatSpeedMult, float overheatRangeMult,
-        float heatGainPerShot, float heatCoolPerSecond,
-        float overheatSeconds, float meltdownSeconds,
-        StatusEffect debuff, float debuffDurationSeconds
-    ){
-        return new AbilityProfile(
-            Mode.HEAT_RAMP, abilityName, AbilityTrigger.chance(0f),
-            0f, maxDamageMultiplier, maxFireRateMultiplier, overheatSpeedMult, overheatRangeMult,
-            overheatSeconds, meltdownSeconds, heatGainPerShot, heatCoolPerSecond,
-            0, 0f, 0f, 0f, 0f,
-            0f, 0f, 1f, 1f, 1f, 1f, 1f,
-            debuff, null, debuffDurationSeconds
-        );
-    }
+    // Custom mechanic parameters
+    public float pullRadius = 0f;
+    public float pullStrength = 0f;
+    public int chainTargets = 0;
+    public float chainRange = 0f;
+    public float chainDamageFraction = 0.7f;
+    public float echoDelay = 0.45f;
+    public float echoDamageFraction = 0.45f;
+    public int bombletCount = 0;
+    public float bombletDelay = 0.55f;
+    public float bombletDamageFraction = 0.3f;
+    public float knockbackForce = 0f;
+    public float markDuration = 4f;
+    public float markBonusMultiplier = 1.45f;
+    public boolean airOnlyMark = true;
 
-    public static AbilityProfile salvoStages(
-        String abilityName, float stage2Seconds, float stage3AdditionalSeconds,
-        float stage2FireRate, float stage2Speed,
-        float stage3FireRate, float stage3Speed, float stage3Range,
-        StatusEffect stage2SlowReload, StatusEffect stage3DmgBoost, float debuffDurationSeconds
-    ){
-        return new AbilityProfile(
-            Mode.SALVO_STAGES, abilityName, AbilityTrigger.chance(0f),
-            0f, 1f, 1f, 1f, 1f,
-            0f, 0f, 0f, 0f, 0, 0f, 0f, 0f, 0f,
-            stage2Seconds, stage3AdditionalSeconds,
-            stage2FireRate, stage2Speed, stage3FireRate, stage3Speed, stage3Range,
-            stage2SlowReload, stage3DmgBoost, debuffDurationSeconds
-        );
-    }
+    // Wave / Tsunami / Parallax / Segment / Cyclone / Foreshadow extras
+    public int secondaryThreshold = 0;
+    public int ricochetBounces = 0;
+    public float ricochetRange = 110f;
+    public float ricochetDamageMult = 1.35f;
+    public float ricochetKnockback = 6.5f;
+    public float maxHpBonusPercent = 0f;
+    public float maxHpBonusCap = 4500f;
 
-    public static AbilityProfile railEcho(
-        String abilityName, AbilityTrigger trigger, float echoDamageRatio,
-        float beamLength, StatusEffect debuff, float debuffDurationSeconds
-    ){
-        return new AbilityProfile(
-            Mode.RAIL_ECHO, abilityName, trigger,
-            0.45f, echoDamageRatio, 1f, 1f, 1f,
-            0f, 0f, 0f, 0f, 0, beamLength, 0f, 0f, 0f,
-            0f, 0f, 1f, 1f, 1f, 1f, 1f,
-            debuff, null, debuffDurationSeconds
-        );
-    }
-
-    public static AbilityProfile carpetBomblets(
-        String abilityName, AbilityTrigger trigger, float shellDamageMultiplier,
-        int bombletCount, float bombletRadius, float bombletDamageRatio,
-        StatusEffect debuff, float debuffDurationSeconds
-    ){
-        return new AbilityProfile(
-            Mode.CARPET_BOMBLETS, abilityName, trigger,
-            0.55f, shellDamageMultiplier, 1f, 1f, 1f,
-            0f, 0f, 0f, 0f, bombletCount, bombletRadius, bombletDamageRatio, 0f, 0f,
-            0f, 0f, 1f, 1f, 1f, 1f, 1f,
-            debuff, null, debuffDurationSeconds
-        );
-    }
-
-    public static AbilityProfile echoKick(
-        String abilityName, AbilityTrigger trigger, float cloneDamageRatio,
-        float delaySeconds, float knockbackStrength,
-        StatusEffect debuff, float debuffDurationSeconds
-    ){
-        return new AbilityProfile(
-            Mode.ECHO_KICK, abilityName, trigger,
-            delaySeconds, cloneDamageRatio, 1f, 1f, 1f,
-            0f, 0f, 0f, 0f, 0, 0f, 0f, 0f, knockbackStrength,
-            0f, 0f, 1f, 1f, 1f, 1f, 1f,
-            debuff, null, debuffDurationSeconds
-        );
-    }
-
-    public static AbilityProfile hunterMark(
-        String abilityName, AbilityTrigger trigger, float markDurationSeconds,
-        float bonusDamageMultiplier, StatusEffect debuff, float debuffDurationSeconds
-    ){
-        return new AbilityProfile(
-            Mode.HUNTER_MARK, abilityName, trigger,
-            markDurationSeconds, bonusDamageMultiplier, 1f, 1f, 1f,
-            0f, 0f, 0f, 0f, 0, 0f, 0f, 0f, 0f,
-            0f, 0f, 1f, 1f, 1f, 1f, 1f,
-            debuff, null, debuffDurationSeconds
-        );
-    }
-
-    public String statSummary(){
-        StringBuilder sb = new StringBuilder();
-        sb.append("[accent]").append(abilityName).append("[]\n");
-
-        switch(mode){
-            case HEAT_RAMP -> {
-                sb.append("[lightgray]Heat Up: []10s firing -> ").append(formatNum(damageMultiplier)).append("x dmg, ")
-                    .append(formatNum(fireRateMultiplier)).append("x fire rate\n");
-                sb.append("[lightgray]Overheated (").append(formatNum(overheatTicks / 60f)).append("s): []Extra flame speed & ")
-                    .append(formatNum(rangeMultiplier)).append("x reach\n");
-                sb.append("[scarlet]Meltdown: []Stops firing for ").append(formatNum(meltdownTicks / 60f)).append("s\n");
-            }
-            case SALVO_STAGES -> {
-                sb.append("[lightgray]Stage 2 (").append(formatNum(stage2Ticks / 60f)).append("s): []")
-                    .append(formatNum(stage2FireRate)).append("x rate, tighter aim, ")
-                    .append(formatNum(stage2Speed)).append("x bullet speed\n");
-                sb.append("[lightgray]Stage 3 (+").append(formatNum((stage3Ticks - stage2Ticks) / 60f)).append("s): []")
-                    .append(formatNum(stage3FireRate)).append("x rate, pinpoint aim, ")
-                    .append(formatNum(stage3Range)).append("x range\n");
-                if(debuff != null && secondaryDebuff != null){
-                    sb.append("[lightgray]Debuffs: []").append(debuff.emoji()).append(" S2 / ")
-                        .append(secondaryDebuff.emoji()).append(" S3");
-                    return sb.toString().trim();
-                }
-            }
-            case OVERDRIVE_RUSH -> {
-                sb.append("[lightgray]Trigger: []").append(trigger.describe()).append("\n");
-                sb.append("[lightgray]Duration: []").append(formatNum(durationTicks / 60f)).append("s\n");
-                sb.append("[lightgray]Damage: []").append(formatNum(damageMultiplier)).append("x\n");
-                if(fireRateMultiplier > 1f){
-                    sb.append("[lightgray]Fire Rate: []").append(formatNum(fireRateMultiplier)).append("x\n");
-                }
-            }
-            case MISSILE_SWARM -> {
-                sb.append("[lightgray]Trigger: []").append(trigger.describe()).append("\n");
-                sb.append("[lightgray]Enhancer: []Turns volley into homing snake missiles (")
-                    .append(formatNum(durationTicks / 60f)).append("s)\n");
-                sb.append("[lightgray]Damage: []").append(formatNum(damageMultiplier)).append("x\n");
-                if(meltdownTicks > 0f){
-                    sb.append("[scarlet]Meltdown: []Stops firing for ").append(formatNum(meltdownTicks / 60f)).append("s\n");
-                }
-            }
-            case CHAIN_LIGHTNING -> {
-                sb.append("[lightgray]Trigger: []").append(trigger.describe()).append("\n");
-                sb.append("[lightgray]Damage: []").append(formatNum(damageMultiplier)).append("x + ")
-                    .append(chainTargets).append(" chain jumps (").append(Math.round(chainDamageRatio * 100f)).append("%)\n");
-            }
-            case SEISMIC_MORTAR -> {
-                sb.append("[lightgray]Trigger: []").append(trigger.describe()).append("\n");
-                sb.append("[lightgray]Damage: []").append(formatNum(damageMultiplier)).append("x\n");
-                sb.append("[lightgray]Effect: []Pulls ground enemies inward\n");
-            }
-            case RAIL_ECHO -> {
-                sb.append("[lightgray]Trigger: []").append(trigger.describe()).append("\n");
-                sb.append("[lightgray]Effect: []Delayed echo beam (").append(Math.round(damageMultiplier * 100f)).append("% dmg)\n");
-            }
-            case CARPET_BOMBLETS -> {
-                sb.append("[lightgray]Trigger: []").append(trigger.describe()).append("\n");
-                sb.append("[lightgray]Damage: []").append(formatNum(damageMultiplier)).append("x + ")
-                    .append(chainTargets).append(" delayed bomblets\n");
-            }
-            case ECHO_KICK -> {
-                sb.append("[lightgray]Trigger: []").append(trigger.describe()).append("\n");
-                sb.append("[lightgray]Clone Shot: []")
-                    .append(Math.round(damageMultiplier * 100f)).append("% dmg double-shot with heavy knockback\n");
-            }
-            case HUNTER_MARK -> {
-                sb.append("[lightgray]Trigger: []").append(trigger.describe()).append("\n");
-                sb.append("[lightgray]Mark: []Enemies take ").append(formatNum(damageMultiplier))
-                    .append("x missile dmg (").append(formatNum(durationTicks / 60f)).append("s)\n");
-            }
-        }
-
-        if(debuff != null){
-            sb.append("[lightgray]Debuff: []").append(debuff.emoji()).append(" ")
-                .append(debuff.localizedName)
-                .append(" (").append(formatNum(debuffDurationTicks / 60f)).append("s)");
-        }
-        return sb.toString().trim();
-    }
-
-    private static String formatNum(float value){
-        if(Math.abs(value - Math.round(value)) < 0.01f){
-            return Integer.toString(Math.round(value));
-        }
-        return String.format(java.util.Locale.US, "%.2f", value)
-            .replaceAll("0+$", "")
-            .replaceAll("\\.$", "");
-    }
-        } 
+    public StatusEffect resolvedPrimaryStatus;
+    public StatusEffect resolvedSecondaryStatus;
+    public StatusEffect resolvedTertiaryStatus;
+}
