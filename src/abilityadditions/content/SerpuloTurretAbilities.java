@@ -1,4 +1,3 @@
-load(AbilityManager) 
     package abilityadditions.content;
 
 import abilityadditions.core.*;
