@@ -192,4 +192,40 @@ public class AbilityEffects{
             Lines.lineAngle(e.x, e.y, i * 90f + 45f, 22f * e.fout());
         }
     });
-}
+
+    // Bob Joke Unit Effects
+    public static final Effect snowballHit = new Effect(16f, e -> {
+        Draw.color(Color.white, Color.sky, e.fin());
+        Angles.randLenVectors(e.id, 6, 3f + e.fin() * 10f, (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, 1.8f * e.fout());
+        });
+    });
+
+    public static final Effect smokeSnowBomb = new Effect(55f, e -> {
+        Draw.color(Color.white, Color.lightGray, e.fin());
+        Draw.alpha(0.75f * e.fout());
+        Angles.randLenVectors(e.id, 18, 6f + e.finpow() * 34f, (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, 5.5f * e.fout() + 2.5f);
+        });
+        Draw.color(Color.white);
+        Lines.stroke(2.5f * e.fout());
+        Lines.circle(e.x, e.y, 4f + e.finpow() * 32f);
+    });
+
+    public static final Effect bobDash = new Effect(20f, e -> {
+        Draw.color(Color.white, Color.sky, e.fin());
+        Lines.stroke(2f * e.fout());
+        Lines.circle(e.x, e.y, 3f + e.fin() * 14f);
+    });
+
+    public static final Effect bobSmoke = new Effect(28f, e -> {
+        Draw.color(Color.lightGray, Color.gray, e.fin());
+        Draw.alpha(0.6f * e.fout());
+        Fill.circle(e.x, e.y, 3.8f * e.fout() + 1f);
+    });
+
+    public static final Effect bobSweat = new Effect(20f, e -> {
+        Draw.color(Color.sky, Color.white, e.fin());
+        Fill.circle(e.x, e.y + e.fin() * 4f, 1.4f * e.fout());
+    });
+                   }
