@@ -12,6 +12,10 @@ public class SerpuloTurretAbilities{
 
     public static final Seq<AbilityProfile> all = new Seq<>();
 
+    public static void load(AbilityManager manager){
+        load();
+    }
+
     public static void load(){
         all.clear();
 
