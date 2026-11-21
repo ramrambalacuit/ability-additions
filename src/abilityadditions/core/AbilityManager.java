@@ -51,8 +51,8 @@ public class AbilityManager{
     private static final Seq<SpinningUnit> spinningUnits = new Seq<>();
     private static final Seq<TidalWave> tidalWaves = new Seq<>();
     private static final IntMap<TrackedEnemyBullet> trackedEnemyBullets = new IntMap<>();
+    private static final ObjectMap<String, BulletType> snakeMissileCache = new ObjectMap<>();
 
-    private static final BulletType[] snakeMissileCache = new BulletType[4];
     private static boolean statsApplied = false;
     private static boolean eventsInitialized = false;
     private static Stat abilityStat;
@@ -917,6 +917,7 @@ public class AbilityManager{
             for(Team team : Team.all){
                 if(team == t.team) continue;
                 for(Building build : team.data().buildings){
+                    if(!(build.block instanceof PointDefenseTurret)) continue;
                     AbilityProfile prof = profiles.get(build.block);
                     if(prof == null) continue;
                     if(prof.id != AbilityId.SEGMENT_AEGIS_PRISM && prof.id != AbilityId.FRAGMENT_STATIC_INTERCEPTOR) continue;
@@ -1119,9 +1120,6 @@ public class AbilityManager{
 
         if(profile.id == AbilityId.SPECTRE_SINGULARITY_ORB){
             b.damage *= profile.damageMultiplier;
-            if(b.type.splashDamage > 0f){
-                b.type.splashDamage *= 1.5f;
-            }
             state.cooldownTimer = profile.meltdownDuration * 60f;
             state.lockedByAbility = true;
             tb.enabled = false;
@@ -1336,8 +1334,7 @@ public class AbilityManager{
 
     private static void convertToSnakeMissile(TurretBuild tb, Bullet oldBullet, AbilityProfile profile){
         Color col = getBulletColor(oldBullet, profile);
-        int slot = tb.block.size % snakeMissileCache.length;
-        BulletType missileType = getOrCreateSnakeMissile(slot, oldBullet, profile, col);
+        BulletType missileType = getOrCreateSnakeMissile(oldBullet, profile, col);
         Bullet missile = missileType.create(
             tb, tb.team, oldBullet.x, oldBullet.y, oldBullet.rotation(),
             oldBullet.damage * profile.damageMultiplier,
@@ -1351,8 +1348,12 @@ public class AbilityManager{
         oldBullet.remove();
     }
 
-    private static BulletType getOrCreateSnakeMissile(int slot, Bullet base, AbilityProfile profile, Color col){
-        MissileBulletType m = new MissileBulletType(Math.max(4.5f, base.type.speed * 0.9f), base.damage * profile.damageMultiplier){{
+    private static BulletType getOrCreateSnakeMissile(Bullet base, AbilityProfile profile, Color col){
+        String key = col.toString();
+        BulletType cached = snakeMissileCache.get(key);
+        if(cached != null) return cached;
+
+        MissileBulletType m = new MissileBulletType(Math.max(4.5f, base.type.speed * 0.9f), Math.max(12f, base.damage * profile.damageMultiplier)){{
             width = 7f;
             height = 11f;
             lifetime = Math.max(48f, base.lifetime * 1.15f);
@@ -1372,7 +1373,11 @@ public class AbilityManager{
             status = profile.resolvedPrimaryStatus != null ? profile.resolvedPrimaryStatus : StatusEffects.none;
             statusDuration = profile.primaryStatusDuration * 60f;
         }};
-        snakeMissileCache[slot] = m;
+        if(!Vars.headless){
+            m.load();
+        }
+        if(snakeMissileCache.size > 24) snakeMissileCache.clear();
+        snakeMissileCache.put(key, m);
         return m;
     }
 
@@ -1701,4 +1706,4 @@ public class AbilityManager{
         int ownerId;
         int lastSeenTick;
     }
-                  }
+    }
