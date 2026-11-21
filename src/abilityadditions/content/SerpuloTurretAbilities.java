@@ -1,4 +1,5 @@
-package abilityadditions.content;
+load(AbilityManager) 
+    package abilityadditions.content;
 
 import abilityadditions.core.*;
 import abilityadditions.core.AbilityProfile.*;
@@ -328,4 +329,4 @@ public class SerpuloTurretAbilities{
         all.add(profile);
         AbilityManager.register(block, profile);
     }
-                }
+                } 
