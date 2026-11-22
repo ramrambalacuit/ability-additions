@@ -5,22 +5,34 @@ import arc.graphics.g2d.*;
 import arc.math.*;
 import arc.math.geom.*;
 import mindustry.entities.*;
-import mindustry.graphics.*;
 
 public class AbilityEffects{
 
-    public static final Effect overdriveTrigger = new Effect(28f, e -> {
+    public static final Effect overdriveTrigger = new Effect(30f, e -> {
         Draw.color(e.color, Color.white, e.fin());
-        Lines.stroke(2.4f * e.fout());
-        Lines.circle(e.x, e.y, 4f + e.fin() * 20f);
-        Angles.randLenVectors(e.id, 8, 6f + e.fin() * 22f, (x, y) -> {
-            Lines.lineAngle(e.x + x, e.y + y, Mathf.angle(x, y), 4f * e.fout());
+        Lines.stroke(2.5f * e.fout());
+        Lines.circle(e.x, e.y, 4f + e.fin() * 22f);
+        Angles.randLenVectors(e.id, 10, 6f + e.fin() * 24f, (x, y) -> {
+            Lines.lineAngle(e.x + x, e.y + y, Mathf.angle(x, y), 4.5f * e.fout());
         });
     });
 
     public static final Effect activeTurretSpark = new Effect(22f, e -> {
         Draw.color(e.color, Color.white, e.fin() * 0.6f);
-        Fill.circle(e.x, e.y, 1.8f * e.fout());
+        Fill.circle(e.x, e.y, 1.9f * e.fout());
+    });
+
+    public static final Effect meltdownSmoke = new Effect(46f, e -> {
+        float driftX = Mathf.randomSeed(e.id, -8f, 8f) * e.fin();
+        float riseY = (10f + Mathf.randomSeed(e.id + 1L, 0f, 10f)) * e.fin();
+        Draw.color(Color.valueOf("2a2a2e"), Color.valueOf("5c5c64"), e.fin());
+        Draw.alpha(0.72f * e.fout());
+        Fill.circle(e.x + driftX, e.y + riseY, 2.2f + 4.8f * e.finpow() * e.fout());
+        if(e.id % 3 == 0){
+            Draw.color(Color.orange, Color.scarlet, e.fin());
+            Draw.alpha(0.8f * e.fout());
+            Fill.circle(e.x + driftX * 0.6f, e.y + riseY * 0.45f, 1.3f * e.fout());
+        }
     });
 
     public static final Effect salvoMuzzleSpark = new Effect(14f, e -> {
@@ -66,34 +78,36 @@ public class AbilityEffects{
         Fill.circle(end.x, end.y, 3.2f * e.fout());
     });
 
-    public static final Effect seismicPullRing = new Effect(26f, e -> {
-        float rad = e.rotation > 0f ? e.rotation : 36f;
+    public static final Effect seismicPullRing = new Effect(28f, e -> {
+        float rad = e.rotation > 0f ? e.rotation : 56f;
         Draw.color(e.color, Color.white, 0.35f);
-        Lines.stroke(2.2f * e.fout());
+        Lines.stroke(2.4f * e.fout());
         Lines.circle(e.x, e.y, rad * e.fout());
-        Angles.randLenVectors(e.id, 10, rad * e.fout(), (x, y) -> {
-            Lines.lineAngle(e.x + x, e.y + y, Mathf.angle(-x, -y), 5f * e.fout());
+        Angles.randLenVectors(e.id, 12, rad * e.fout(), (x, y) -> {
+            Lines.lineAngle(e.x + x, e.y + y, Mathf.angle(-x, -y), 6f * e.fout());
         });
     });
 
-    public static final Effect carpetBombletLaunch = new Effect(18f, e -> {
+    public static final Effect carpetBombletLaunch = new Effect(22f, e -> {
         Draw.color(e.color, Color.white, e.fin());
-        Fill.circle(e.x, e.y, 3.2f * e.fout());
+        Lines.stroke(1.6f * e.fout());
+        Lines.circle(e.x, e.y, 2f + e.fin() * 10f);
+        Fill.circle(e.x, e.y, 3.4f * e.fout());
     });
 
-    public static final Effect carpetBombletExplosion = new Effect(22f, e -> {
+    public static final Effect carpetBombletExplosion = new Effect(26f, e -> {
         Draw.color(e.color, Color.orange, e.fin());
-        Lines.stroke(2.2f * e.fout());
-        Lines.circle(e.x, e.y, 3f + e.fin() * 18f);
-        Angles.randLenVectors(e.id, 7, 4f + e.fin() * 16f, (x, y) -> {
-            Fill.circle(e.x + x, e.y + y, 2.2f * e.fout());
+        Lines.stroke(2.4f * e.fout());
+        Lines.circle(e.x, e.y, 3f + e.fin() * 22f);
+        Angles.randLenVectors(e.id, 9, 4f + e.fin() * 18f, (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, 2.5f * e.fout());
         });
     });
 
-    public static final Effect huntersMarkPulse = new Effect(20f, e -> {
-        Draw.color(e.color, Color.white, e.fin() * 0.4f);
-        Lines.stroke(2f * e.fout());
-        Lines.circle(e.x, e.y, 12f + e.fin() * 10f);
+    public static final Effect huntersMarkPulse = new Effect(24f, e -> {
+        Draw.color(e.color, Color.white, e.fin() * 0.45f);
+        Lines.stroke(2.2f * e.fout());
+        Lines.circle(e.x, e.y, 12f + e.fin() * 14f);
     });
 
     public static final Effect railEchoBeam = new Effect(18f, e -> {
@@ -108,7 +122,7 @@ public class AbilityEffects{
     });
 
     public static final Effect waveMonsoonPulse = new Effect(26f, e -> {
-        float rad = e.rotation > 0f ? e.rotation : 54f;
+        float rad = e.rotation > 0f ? e.rotation : 56f;
         Draw.color(e.color, Color.white, 0.3f);
         Lines.stroke(2.6f * e.fout());
         Lines.circle(e.x, e.y, 8f + rad * e.fin());
@@ -193,39 +207,55 @@ public class AbilityEffects{
         }
     });
 
-    // Bob Joke Unit Effects
-    public static final Effect snowballHit = new Effect(16f, e -> {
-        Draw.color(Color.white, Color.sky, e.fin());
-        Angles.randLenVectors(e.id, 6, 3f + e.fin() * 10f, (x, y) -> {
-            Fill.circle(e.x + x, e.y + y, 1.8f * e.fout());
+    // Rich Bob Joke Unit Effects
+    public static final Effect snowballHit = new Effect(20f, e -> {
+        Draw.color(Color.white, Color.valueOf("b8ecff"), e.fin());
+        Lines.stroke(1.5f * e.fout());
+        Lines.circle(e.x, e.y, 2f + e.fin() * 8f);
+        Angles.randLenVectors(e.id, 8, 2f + e.finpow() * 12f, (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, 2.2f * e.fout());
         });
     });
 
-    public static final Effect smokeSnowBomb = new Effect(55f, e -> {
-        Draw.color(Color.white, Color.lightGray, e.fin());
+    public static final Effect smokeSnowBomb = new Effect(75f, e -> {
+        Draw.color(Color.valueOf("6e747d"), Color.valueOf("b9c2cc"), e.fin());
         Draw.alpha(0.75f * e.fout());
-        Angles.randLenVectors(e.id, 18, 6f + e.finpow() * 34f, (x, y) -> {
-            Fill.circle(e.x + x, e.y + y, 5.5f * e.fout() + 2.5f);
+        Angles.randLenVectors(e.id, 16, 4f + e.finpow() * 32f, (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, (6f + e.fin() * 5f) * e.fout());
+        });
+        Draw.color(Color.white, Color.lightGray, e.fin());
+        Draw.alpha(0.85f * e.fout());
+        Angles.randLenVectors(e.id + 33L, 12, 2f + e.finpow() * 20f, (x, y) -> {
+            Fill.circle(e.x + x, e.y + y, 4.8f * e.fout() + 1.5f);
         });
         Draw.color(Color.white);
-        Lines.stroke(2.5f * e.fout());
-        Lines.circle(e.x, e.y, 4f + e.finpow() * 32f);
+        Lines.stroke(2.8f * e.fout());
+        Lines.circle(e.x, e.y, 4f + e.finpow() * 34f);
     });
 
-    public static final Effect bobDash = new Effect(20f, e -> {
+    public static final Effect bobDash = new Effect(24f, e -> {
         Draw.color(Color.white, Color.sky, e.fin());
-        Lines.stroke(2f * e.fout());
-        Lines.circle(e.x, e.y, 3f + e.fin() * 14f);
+        Lines.stroke(2.2f * e.fout());
+        Lines.circle(e.x, e.y, 3f + e.fin() * 15f);
+        Angles.randLenVectors(e.id, 6, 4f + e.finpow() * 14f, (x, y) -> {
+            Lines.lineAngle(e.x + x, e.y + y, Mathf.angle(x, y), 4.5f * e.fout());
+        });
     });
 
-    public static final Effect bobSmoke = new Effect(28f, e -> {
-        Draw.color(Color.lightGray, Color.gray, e.fin());
-        Draw.alpha(0.6f * e.fout());
-        Fill.circle(e.x, e.y, 3.8f * e.fout() + 1f);
+    public static final Effect bobSmoke = new Effect(34f, e -> {
+        Draw.color(Color.valueOf("c9d2db"), Color.valueOf("7c8591"), e.fin());
+        Draw.alpha(0.65f * e.fout());
+        Angles.randLenVectors(e.id, 3, 2f + e.fin() * 6f, (x, y) -> {
+            Fill.circle(e.x + x, e.y + y + e.fin() * 4f, 3.6f * e.fout() + 1f);
+        });
     });
 
-    public static final Effect bobSweat = new Effect(20f, e -> {
+    public static final Effect bobSweat = new Effect(24f, e -> {
         Draw.color(Color.sky, Color.white, e.fin());
-        Fill.circle(e.x, e.y + e.fin() * 4f, 1.4f * e.fout());
+        for(int i = -1; i <= 1; i += 2){
+            float dx = i * (3f + e.fin() * 5f);
+            float dy = e.fin() * 6f - e.fin() * e.fin() * 4f;
+            Fill.circle(e.x + dx, e.y + dy, 1.5f * e.fout());
+        }
     });
-                   }
+                                                             } 
