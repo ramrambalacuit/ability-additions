@@ -45,9 +45,11 @@ public class AbilityManager{
     private static final ObjectSet<Long> countedUnitHitShots = new ObjectSet<>();
 
     private static final Seq<Bullet> bulletSnapshot = new Seq<>();
-    private static final Seq<DelayedEcho> delayedEchoes = new Seq<>();
+    private static final Seq<DelayedShrapnelClone> delayedClones = new Seq<>();
+    private static final Seq<TrackedRippleShell> trackedRippleShells = new Seq<>();
     private static final Seq<DelayedBomblet> delayedBomblets = new Seq<>();
     private static final Seq<MarkedUnit> markedUnits = new Seq<>();
+    private static final Seq<ParalyzedUnit> paralyzedUnits = new Seq<>();
     private static final Seq<SpinningUnit> spinningUnits = new Seq<>();
     private static final Seq<TidalWave> tidalWaves = new Seq<>();
     private static final IntMap<TrackedEnemyBullet> trackedEnemyBullets = new IntMap<>();
@@ -171,12 +173,16 @@ public class AbilityManager{
 
     private static void addStatsAndBars(Block block, AbilityProfile profile){
         block.stats.add(abilityStat, table -> {
-            table.row();
-            table.table(Styles.black5, t -> {
-                t.left().margin(8f);
-                t.add("[accent]" + profile.abilityName + "[]").left().row();
-                t.add("[lightgray]" + profile.description + "[]").wrap().growX().left().padTop(4f).row();
-            }).growX().padTop(4f);
+            table.left();
+            table.table(t -> {
+                t.left().defaults().left();
+                t.add("[accent]" + profile.abilityName + "[]  [lightgray](" + formatTriggerBadge(profile) + ")[]").row();
+                t.add("[white]" + profile.description + "[]").wrap().width(330f).padTop(3f).row();
+                String statuses = buildStatusLine(profile);
+                if(!statuses.isEmpty()){
+                    t.add("[lightgray]Statuses: []" + statuses).wrap().width(330f).padTop(3f).row();
+                }
+            }).left().padTop(2f).padBottom(2f);
         });
 
         block.addBar("ability", entity -> new Bar(
@@ -202,6 +208,33 @@ public class AbilityManager{
         });
     }
 
+    private static String formatTriggerBadge(AbilityProfile p){
+        switch(p.trigger.type){
+            case EVERY_N_SHOTS: return "Every " + p.trigger.everyNShots + " Shots";
+            case CHANCE_PER_CYCLE: return Math.round(p.trigger.chance * 100f) + "% Chance";
+            case CONTINUOUS_HEAT: return (int)p.trigger.heatSeconds + "s Firing";
+            case STAGE_DURATION: return (int)p.trigger.stage1Seconds + "s / +" + (int)p.trigger.stage2Seconds + "s";
+            case CONFIRMED_UNIT_HITS: return p.trigger.everyNShots + " Unit Hits";
+            case INTERCEPT_COUNT: return "Every " + p.trigger.everyNShots + " Intercepts";
+            case TRACTOR_LOCK: return Strings.fixed(p.trigger.heatSeconds, 1) + "s Lock";
+            default: return "Ability";
+        }
+    }
+
+    private static String buildStatusLine(AbilityProfile p){
+        StringBuilder sb = new StringBuilder();
+        if(p.resolvedPrimaryStatus != null) sb.append("[accent]").append(p.resolvedPrimaryStatus.localizedName).append("[]");
+        if(p.resolvedSecondaryStatus != null){
+            if(sb.length() > 0) sb.append(", ");
+            sb.append("[accent]").append(p.resolvedSecondaryStatus.localizedName).append("[]");
+        }
+        if(p.resolvedTertiaryStatus != null){
+            if(sb.length() > 0) sb.append(", ");
+            sb.append("[accent]").append(p.resolvedTertiaryStatus.localizedName).append("[]");
+        }
+        return sb.toString();
+    }
+
     private static boolean shouldHideBarBox(Building entity, AbilityProfile profile){
         if(profile.trigger.type != TriggerType.CHANCE_PER_CYCLE) return false;
         AbilityState state = states.get(entity.id);
@@ -222,6 +255,9 @@ public class AbilityManager{
         }
         if(state.chargeTimer > 0f){
             return "Charging " + Strings.fixed(state.chargeTimer / 60f, 1) + "s";
+        }
+        if(profile.id == AbilityId.PIERCE_DEAD_EYE && state.deadEyeRemaining > 0){
+            return "Dead Eye x" + state.deadEyeRemaining;
         }
 
         switch(profile.trigger.type){
@@ -263,7 +299,7 @@ public class AbilityManager{
 
             case CONFIRMED_UNIT_HITS:
                 if(state.shotCounter >= profile.trigger.everyNShots){
-                    return "Apex Lock READY!";
+                    return profile.abilityName + " READY!";
                 }
                 return "Hits: " + state.shotCounter + "/" + profile.trigger.everyNShots;
 
@@ -290,25 +326,21 @@ public class AbilityManager{
 
     private static Color getBarColor(Building entity, AbilityProfile profile){
         AbilityState state = states.get(entity.id);
-        Color dynamicCol = entity instanceof TurretBuild ? getTurretAccentColor((TurretBuild)entity, profile) : profile.accentColor;
-        if(state == null) return dynamicCol;
+        if(state == null) return profile.accentColor;
 
-        if(state.cooldownTimer > 0f && profile.meltdownDuration > 0f){
-            return Color.scarlet;
-        }
+        if(state.cooldownTimer > 0f && profile.meltdownDuration > 0f) return Color.scarlet;
         if(state.chargeTimer > 0f){
-            return dynamicCol;
+            return profile.id == AbilityId.MELTDOWN_GRANITE_BLAST ? AbilityEffects.graniteCyan : Color.white;
         }
         if(profile.trigger.type == TriggerType.STAGE_DURATION){
             if(state.stage >= 3) return Color.orange;
             if(state.stage == 2) return Color.gold;
             return Color.lightGray;
         }
-        if(state.activeTimer > 0f || state.empoweredShots > 0 ||
-            (profile.trigger.type == TriggerType.CONFIRMED_UNIT_HITS && state.shotCounter >= profile.trigger.everyNShots)){
-            return dynamicCol;
+        if(entity instanceof TurretBuild){
+            return getTurretAccentColor((TurretBuild)entity, profile);
         }
-        return dynamicCol.cpy().mul(0.75f);
+        return profile.accentColor;
     }
 
     private static float getBarFraction(Building entity, AbilityProfile profile){
@@ -320,6 +352,9 @@ public class AbilityManager{
         }
         if(state.chargeTimer > 0f && profile.chargeDuration > 0f){
             return Mathf.clamp(1f - (state.chargeTimer / (profile.chargeDuration * 60f)));
+        }
+        if(profile.id == AbilityId.PIERCE_DEAD_EYE && state.deadEyeRemaining > 0){
+            return Mathf.clamp((float)state.deadEyeRemaining / profile.deadEyeShots);
         }
 
         switch(profile.trigger.type){
@@ -426,8 +461,10 @@ public class AbilityManager{
             }
         }
 
-        updateDelayedEchoes();
+        updateTrackedRippleShells();
+        updateDelayedClones();
         updateDelayedBomblets();
+        updateParalyzedUnits();
         updateMarkedUnits();
         updateSpinningUnits();
         updateTidalWaves();
@@ -437,6 +474,7 @@ public class AbilityManager{
         TurretBuild tb = build instanceof TurretBuild ? (TurretBuild)build : null;
         Turret turret = tb != null && tb.block instanceof Turret ? (Turret)tb.block : null;
 
+        // 1. Meltdown lockdown (cuts off firing, ammo/power/liquid intake, spews smoke)
         if(state.cooldownTimer > 0f){
             state.cooldownTimer = Math.max(0f, state.cooldownTimer - Time.delta);
             if(profile.meltdownDuration > 0f){
@@ -446,8 +484,8 @@ public class AbilityManager{
                 if(tb != null) tb.reloadCounter = 0f;
                 if(Mathf.chanceDelta(0.28f)){
                     AbilityEffects.meltdownSmoke.at(
-                        build.x + Mathf.range(build.block.size * 2.4f),
-                        build.y + Mathf.range(build.block.size * 2.4f)
+                        build.x + Mathf.range(build.block.size * 3.2f),
+                        build.y + Mathf.range(build.block.size * 3.2f)
                     );
                 }
             }
@@ -461,6 +499,7 @@ public class AbilityManager{
             build.enabled = true;
         }
 
+        // 2. Charging phase (Spectre 3s orb, Meltdown 7s Royal Blue/Cyan orb)
         if(state.chargeTimer > 0f && tb != null && turret != null){
             tb.reloadCounter = 0f;
             if(!profile.canTurnWhileCharging){
@@ -468,16 +507,16 @@ public class AbilityManager{
             }
             state.chargeTimer = Math.max(0f, state.chargeTimer - Time.delta);
 
-            Color orbCol = getTurretAccentColor(tb, profile);
+            Color orbCol = profile.id == AbilityId.MELTDOWN_GRANITE_BLAST ? AbilityEffects.graniteCyan : getTurretAccentColor(tb, profile);
             float muzzleX = tb.x + Angles.trnsx(tb.rotation, turret.shootY);
             float muzzleY = tb.y + Angles.trnsy(tb.rotation, turret.shootY);
-            if(Mathf.chanceDelta(0.65f)){
-                float streakRad = profile.id == AbilityId.MELTDOWN_GRANITE_BLAST ? 68f : 44f;
+            if(Mathf.chanceDelta(0.75f)){
+                float streakRad = profile.id == AbilityId.MELTDOWN_GRANITE_BLAST ? 76f : 44f;
                 AbilityEffects.singularityAbsorbStreak.at(muzzleX, muzzleY, Mathf.random(360f), orbCol, streakRad);
             }
 
             if(state.chargeTimer <= 0f){
-                float blastRad = profile.id == AbilityId.MELTDOWN_GRANITE_BLAST ? 74f : 48f;
+                float blastRad = profile.id == AbilityId.MELTDOWN_GRANITE_BLAST ? 82f : 48f;
                 AbilityEffects.singularityReleaseBlast.at(muzzleX, muzzleY, blastRad, orbCol);
                 if(profile.id == AbilityId.SPECTRE_SINGULARITY_ORB){
                     state.empoweredShots = 1;
@@ -485,20 +524,32 @@ public class AbilityManager{
                 }else if(profile.id == AbilityId.MELTDOWN_GRANITE_BLAST){
                     state.activeTimer = profile.activeDuration * 60f;
                     state.lockedRotation = tb.rotation;
-                    tb.reloadCounter = turret.reload + 1f;
+                    tb.reloadCounter = 0f;
+                    tb.target = null;
+                    tb.targetPos.set(
+                        tb.x + Angles.trnsx(state.lockedRotation, 240f),
+                        tb.y + Angles.trnsy(state.lockedRotation, 240f)
+                    );
                 }
             }
             return;
         }
 
+        // 3. Active duration updates
         if(state.activeTimer > 0f){
             state.activeTimer = Math.max(0f, state.activeTimer - Time.delta);
 
-            if(tb != null && profile.lockRotationWhileActive){
+            if(profile.id == AbilityId.MELTDOWN_GRANITE_BLAST && tb != null && turret != null){
+                // Suppress LaserTurret's normal orange beam & lock rotation 100%
+                tb.reloadCounter = 0f;
                 tb.rotation = state.lockedRotation;
-            }
-
-            if(profile.id == AbilityId.PARALLAX_GRAVITY_SLAM){
+                tb.target = null;
+                tb.targetPos.set(
+                    tb.x + Angles.trnsx(state.lockedRotation, 240f),
+                    tb.y + Angles.trnsy(state.lockedRotation, 240f)
+                );
+                updateGraniteBlastDamage(tb, turret, profile, state);
+            }else if(profile.id == AbilityId.PARALLAX_GRAVITY_SLAM){
                 updateParallaxActive(build, profile, state);
             }else if(profile.id == AbilityId.SEGMENT_AEGIS_PRISM){
                 if(tickCounter % 4 == 0){
@@ -520,6 +571,13 @@ public class AbilityManager{
             }
         }
 
+        // 4. Pierce RDR2 Dead Eye rapid-fire burst
+        if(profile.id == AbilityId.PIERCE_DEAD_EYE && tb != null && turret != null && state.deadEyeRemaining > 0){
+            updatePierceDeadEye(tb, turret, profile, state);
+            return;
+        }
+
+        // 5. General TurretBuild triggers
         if(tb != null && turret != null){
             if(tb.totalShots > state.lastTotalShots){
                 state.lastTotalShots = tb.totalShots;
@@ -576,6 +634,7 @@ public class AbilityManager{
             }
         }
 
+        // 6. Parallax tractor lock
         if(profile.id == AbilityId.PARALLAX_GRAVITY_SLAM && build instanceof TractorBeamBuild && state.activeTimer <= 0f){
             TractorBeamBuild tbb = (TractorBeamBuild)build;
             if(tbb.target != null && !tbb.target.dead && build.efficiency > 0.05f){
@@ -588,6 +647,82 @@ public class AbilityManager{
                 state.heatTimer = Math.max(0f, state.heatTimer - Time.delta * 0.6f);
             }
         }
+    }
+
+    private static void updateGraniteBlastDamage(TurretBuild tb, Turret turret, AbilityProfile profile, AbilityState state){
+        if(tickCounter % 4 != 0) return;
+        float len = 620f;
+        float mx = tb.x + Angles.trnsx(state.lockedRotation, turret.shootY);
+        float my = tb.y + Angles.trnsy(state.lockedRotation, turret.shootY);
+        float endX = mx + Angles.trnsx(state.lockedRotation, len);
+        float endY = my + Angles.trnsy(state.lockedRotation, len);
+        float beamDmg = 135f * profile.damageMultiplier * 0.45f;
+
+        Units.nearbyEnemies(tb.team, (mx + endX) * 0.5f, (my + endY) * 0.5f, len * 0.55f, u -> {
+            if(!u.dead && Intersector.distanceSegmentPoint(mx, my, endX, endY, u.x, u.y) <= u.hitSize + 20f){
+                u.damagePierce(beamDmg);
+                u.apply(StatusEffects.melting, 240f);
+                if(profile.resolvedPrimaryStatus != null){
+                    u.apply(profile.resolvedPrimaryStatus, profile.primaryStatusDuration * 60f);
+                }
+                AbilityEffects.activeTurretSpark.at(u.x, u.y, AbilityEffects.graniteCyan);
+            }
+        });
+        Damage.damage(tb.team, endX, endY, 22f, beamDmg * 0.35f, true, false);
+    }
+
+    private static void startPierceDeadEye(TurretBuild tb, Turret turret, AbilityProfile profile, AbilityState state){
+        Seq<Unit> candidates = new Seq<>();
+        Units.nearbyEnemies(tb.team, tb.x, tb.y, turret.range, u -> {
+            if(u != null && !u.dead) candidates.add(u);
+        });
+        if(candidates.size == 0) return;
+
+        candidates.shuffle();
+        state.deadEyeTargets.clear();
+        for(int i = 0; i < profile.deadEyeShots; i++){
+            state.deadEyeTargets.add(candidates.get(i % candidates.size));
+        }
+        state.deadEyeRemaining = state.deadEyeTargets.size;
+        state.deadEyeFireTimer = 4f;
+        AbilityEffects.overdriveTrigger.at(tb.x, tb.y, getTurretAccentColor(tb, profile));
+    }
+
+    private static void updatePierceDeadEye(TurretBuild tb, Turret turret, AbilityProfile profile, AbilityState state){
+        state.deadEyeFireTimer -= Time.delta;
+        if(state.deadEyeFireTimer > 0f) return;
+
+        if(!tb.hasAmmo() || state.deadEyeTargets.size == 0){
+            state.deadEyeRemaining = 0;
+            state.deadEyeTargets.clear();
+            return;
+        }
+
+        Unit target = state.deadEyeTargets.remove(0);
+        state.deadEyeRemaining = state.deadEyeTargets.size;
+        state.deadEyeFireTimer = profile.deadEyeInterval;
+
+        if(target == null || target.dead){
+            target = Units.closestEnemy(tb.team, tb.x, tb.y, turret.range, u -> !u.dead);
+        }
+        if(target == null) return;
+
+        float ang = Angles.angle(tb.x, tb.y, target.x, target.y);
+        tb.rotation = ang;
+        BulletType ammo = tb.peekAmmo();
+        if(ammo == null) return;
+
+        float mx = tb.x + Angles.trnsx(ang, turret.shootY);
+        float my = tb.y + Angles.trnsy(ang, turret.shootY);
+        Color col = getAmmoColor(ammo, profile.accentColor);
+
+        Bullet hyper = ammo.create(tb, tb.team, mx, my, ang, ammo.damage * 1.15f, 3.6f, 0.35f, null);
+        if(hyper != null){
+            processedBullets.add(hyper.id);
+            bulletOwners.put(hyper.id, profile);
+        }
+        Sounds.shootDuo.at(mx, my, 1.35f);
+        AbilityEffects.pierceHyperTracer.at(mx, my, 0f, col, new Vec2(target.x, target.y));
     }
 
     private static void onTurretTriggerPull(TurretBuild tb, Turret turret, AbilityProfile profile, AbilityState state){
@@ -692,22 +827,21 @@ public class AbilityManager{
     }
 
     private static void triggerHeatAbility(TurretBuild tb, Turret turret, AbilityProfile profile, AbilityState state){
-        Color col = getTurretAccentColor(tb, profile);
         if(profile.id == AbilityId.SCORCH_THERMAL_RAMP){
             state.activeTimer = profile.activeDuration * 60f;
-            AbilityEffects.overdriveTrigger.at(tb.x, tb.y, col);
+            AbilityEffects.overdriveTrigger.at(tb.x, tb.y, getTurretAccentColor(tb, profile));
         }else if(profile.id == AbilityId.WAVE_ALCHEMICAL_MONSOON){
             state.activeTimer = profile.activeDuration * 60f;
             Liquid liq = tb.liquids != null ? tb.liquids.current() : Liquids.water;
-            Color lcol = liq != null ? liq.color : col;
-            AbilityEffects.waveMonsoonPulse.at(tb.x, tb.y, 56f, lcol);
+            Color col = liq != null ? liq.color : profile.accentColor;
+            AbilityEffects.waveMonsoonPulse.at(tb.x, tb.y, 56f, col);
             triggerWaveElementalSurge(tb, profile, liq);
         }else if(profile.id == AbilityId.TSUNAMI_TIDAL_WALL){
             state.activeTimer = profile.activeDuration * 60f;
             Liquid liq = tb.liquids != null ? tb.liquids.current() : Liquids.water;
-            Color lcol = liq != null ? liq.color : col;
-            AbilityEffects.overdriveTrigger.at(tb.x, tb.y, lcol);
-            spawnTsunamiWave(tb, turret, profile, liq, lcol);
+            Color col = liq != null ? liq.color : profile.accentColor;
+            AbilityEffects.overdriveTrigger.at(tb.x, tb.y, col);
+            spawnTsunamiWave(tb, turret, profile, liq, col);
         }
     }
 
@@ -1095,12 +1229,6 @@ public class AbilityManager{
             return;
         }
 
-        if(profile.id == AbilityId.MELTDOWN_GRANITE_BLAST && state.activeTimer > 0f){
-            b.damage *= profile.damageMultiplier;
-            activeEmpoweredBullets.add(b.id);
-            return;
-        }
-
         if(profile.activeDuration > 0f && state.activeTimer > 0f && profile.trigger.type == TriggerType.EVERY_N_SHOTS){
             b.damage *= profile.damageMultiplier;
             b.vel.scl(profile.bulletSpeedMultiplier);
@@ -1111,7 +1239,7 @@ public class AbilityManager{
 
         boolean singleShotReady = (state.empoweredShots > 0) || (state.empoweredShotIndex == tb.totalShots);
         if(singleShotReady){
-            if(state.empoweredShots > 0 && (profile.id != AbilityId.SPECTRE_SINGULARITY_ORB || tb.totalShots != state.lastEmpoweredConsumedShot)){
+            if(state.empoweredShots > 0 && tb.totalShots != state.lastEmpoweredConsumedShot){
                 state.empoweredShots--;
                 state.lastEmpoweredConsumedShot = tb.totalShots;
             }
@@ -1134,57 +1262,38 @@ public class AbilityManager{
             return;
         }
 
-        if(profile.id == AbilityId.LANCER_RAIL_ECHO){
-            DelayedEcho echo = new DelayedEcho();
-            echo.team = tb.team;
-            echo.x = b.x;
-            echo.y = b.y;
-            echo.angle = tb.rotation;
-            echo.length = b.type instanceof LaserBulletType ? ((LaserBulletType)b.type).length : 185f;
-            echo.damage = Math.max(12f, b.damage * profile.echoDamageFraction);
-            echo.timer = profile.echoDelay * 60f;
-            echo.color = col;
-            echo.status = profile.resolvedPrimaryStatus;
-            echo.statusDuration = profile.primaryStatusDuration * 60f;
-            delayedEchoes.add(echo);
-            return;
-        }
-
         if(profile.id == AbilityId.FUSE_ECHO_KICK){
-            DelayedEcho echo = new DelayedEcho();
-            echo.team = tb.team;
-            echo.x = b.x;
-            echo.y = b.y;
-            echo.angle = b.rotation();
-            echo.length = 95f;
-            echo.damage = Math.max(8f, b.damage * profile.echoDamageFraction);
-            echo.timer = profile.echoDelay * 60f;
-            echo.color = col;
-            echo.knockback = profile.knockbackForce;
-            echo.status = profile.resolvedPrimaryStatus;
-            echo.statusDuration = profile.primaryStatusDuration * 60f;
-            delayedEchoes.add(echo);
+            DelayedShrapnelClone clone = new DelayedShrapnelClone();
+            clone.turret = tb;
+            clone.team = tb.team;
+            clone.x = b.x;
+            clone.y = b.y;
+            clone.angle = b.rotation();
+            clone.bulletType = b.type;
+            clone.damage = Math.max(8f, b.damage * profile.echoDamageFraction);
+            clone.timer = profile.echoDelay * 60f;
+            clone.color = col;
+            clone.knockback = profile.knockbackForce;
+            clone.status = profile.resolvedPrimaryStatus;
+            clone.statusDuration = profile.primaryStatusDuration * 60f;
+            delayedClones.add(clone);
             return;
         }
 
         if(profile.id == AbilityId.RIPPLE_CARPET_BOMBLETS){
             b.damage *= profile.damageMultiplier;
-            for(int i = 0; i < profile.bombletCount; i++){
-                DelayedBomblet bomb = new DelayedBomblet();
-                bomb.team = tb.team;
-                float spreadAng = b.rotation() + (i - 1) * 22f + Mathf.range(8f);
-                float dist = Mathf.dst(tb.x, tb.y, tb.targetPos.x, tb.targetPos.y);
-                if(dist < 40f) dist = 160f;
-                bomb.x = tb.x + Angles.trnsx(spreadAng, dist + Mathf.range(24f));
-                bomb.y = tb.y + Angles.trnsy(spreadAng, dist + Mathf.range(24f));
-                bomb.damage = Math.max(15f, (b.damage + b.type.splashDamage) * profile.bombletDamageFraction);
-                bomb.timer = profile.bombletDelay * 60f + i * 5f;
-                bomb.color = col;
-                bomb.status = profile.resolvedPrimaryStatus;
-                bomb.statusDuration = profile.primaryStatusDuration * 60f;
-                delayedBomblets.add(bomb);
-                AbilityEffects.carpetBombletLaunch.at(b.x, b.y, col);
-            }
+            TrackedRippleShell shell = new TrackedRippleShell();
+            shell.bullet = b;
+            shell.team = tb.team;
+            shell.lastX = b.x;
+            shell.lastY = b.y;
+            shell.damage = Math.max(15f, (b.damage + b.type.splashDamage) * profile.bombletDamageFraction);
+            shell.count = profile.bombletCount;
+            shell.delay = profile.bombletDelay * 60f;
+            shell.color = col;
+            shell.status = profile.resolvedPrimaryStatus;
+            shell.statusDuration = profile.primaryStatusDuration * 60f;
+            trackedRippleShells.add(shell);
             return;
         }
 
@@ -1198,6 +1307,24 @@ public class AbilityManager{
         AbilityProfile profile = bulletOwners.get(bullet.id);
         if(profile == null) return;
 
+        // Pierce Dead Eye (5 confirmed unit hits -> 5 random targets hypershot)
+        if(profile.id == AbilityId.PIERCE_DEAD_EYE && bullet.owner instanceof TurretBuild){
+            TurretBuild tb = (TurretBuild)bullet.owner;
+            AbilityState state = states.get(tb.id);
+            Long key = bulletShotKeys.get(bullet.id);
+            if(state != null && key != null && state.deadEyeRemaining <= 0 && !countedUnitHitShots.contains(key)){
+                if(countedUnitHitShots.size > 200) countedUnitHitShots.clear();
+                countedUnitHitShots.add(key);
+                state.shotCounter++;
+                if(state.shotCounter >= profile.trigger.everyNShots){
+                    state.shotCounter = 0;
+                    startPierceDeadEye(tb, (Turret)tb.block, profile, state);
+                }
+            }
+            return;
+        }
+
+        // Foreshadow Apex Execution
         if(profile.id == AbilityId.FORESHADOW_APEX_EXECUTION && bullet.owner instanceof TurretBuild){
             TurretBuild tb = (TurretBuild)bullet.owner;
             AbilityState state = states.get(tb.id);
@@ -1221,6 +1348,7 @@ public class AbilityManager{
             return;
         }
 
+        // Cyclone Gale Ricochet
         if(profile.id == AbilityId.CYCLONE_GALE_RICOCHET && galeBullets.contains(bullet.id)){
             galeBullets.remove(bullet.id);
             runCycloneRicochet(bullet.team, unit, bullet, profile);
@@ -1228,8 +1356,13 @@ public class AbilityManager{
         }
 
         if(!activeEmpoweredBullets.contains(bullet.id)) return;
-
         Color col = getBulletColor(bullet, profile);
+
+        // Lancer Arc Paralysis
+        if(profile.id == AbilityId.LANCER_ARC_PARALYSIS && bullet.owner instanceof TurretBuild){
+            paralyzeUnit((TurretBuild)bullet.owner, unit, col);
+            return;
+        }
 
         if(profile.id == AbilityId.ARC_STATIC_CHAIN){
             activeEmpoweredBullets.remove(bullet.id);
@@ -1252,7 +1385,18 @@ public class AbilityManager{
 
         if(profile.id == AbilityId.HAIL_SEISMIC_MORTAR){
             activeEmpoweredBullets.remove(bullet.id);
-            applyHailPull(bullet.team, unit.x, unit.y, profile, col);
+            AbilityEffects.seismicPullRing.at(unit.x, unit.y, profile.pullRadius, col);
+            Units.nearbyEnemies(bullet.team, unit.x, unit.y, profile.pullRadius, other -> {
+                if(!other.dead && !other.isFlying()){
+                    float sizeScale = Mathf.clamp(22f / Math.max(8f, other.hitSize), 0.35f, 1.5f);
+                    float ang = Angles.angle(other.x, other.y, unit.x, unit.y);
+                    float pull = profile.pullStrength * 32f * sizeScale;
+                    other.impulse(Angles.trnsx(ang, pull), Angles.trnsy(ang, pull));
+                    if(profile.resolvedPrimaryStatus != null){
+                        other.apply(profile.resolvedPrimaryStatus, profile.primaryStatusDuration * 60f);
+                    }
+                }
+            });
             return;
         }
 
@@ -1288,23 +1432,76 @@ public class AbilityManager{
 
         if(profile.id == AbilityId.HAIL_SEISMIC_MORTAR){
             activeEmpoweredBullets.remove(bullet.id);
-            applyHailPull(bullet.team, build.x, build.y, profile, getBulletColor(bullet, profile));
+            Color col = getBulletColor(bullet, profile);
+            AbilityEffects.seismicPullRing.at(build.x, build.y, profile.pullRadius, col);
+            Units.nearbyEnemies(bullet.team, build.x, build.y, profile.pullRadius, other -> {
+                if(!other.dead && !other.isFlying()){
+                    float sizeScale = Mathf.clamp(22f / Math.max(8f, other.hitSize), 0.35f, 1.5f);
+                    float ang = Angles.angle(other.x, other.y, build.x, build.y);
+                    float pull = profile.pullStrength * 32f * sizeScale;
+                    other.impulse(Angles.trnsx(ang, pull), Angles.trnsy(ang, pull));
+                    if(profile.resolvedPrimaryStatus != null){
+                        other.apply(profile.resolvedPrimaryStatus, profile.primaryStatusDuration * 60f);
+                    }
+                }
+            });
         }
     }
 
-    private static void applyHailPull(Team team, float cx, float cy, AbilityProfile profile, Color col){
-        AbilityEffects.seismicPullRing.at(cx, cy, profile.pullRadius, col);
-        Units.nearbyEnemies(team, cx, cy, profile.pullRadius, other -> {
-            if(!other.dead && !other.isFlying()){
-                float ang = Angles.angle(other.x, other.y, cx, cy);
-                float sizeFactor = Mathf.clamp(14f / Math.max(6f, other.hitSize), 0.25f, 1.8f);
-                float pull = profile.pullStrength * 30f * sizeFactor;
-                other.impulse(Angles.trnsx(ang, pull), Angles.trnsy(ang, pull));
-                if(profile.resolvedPrimaryStatus != null){
-                    other.apply(profile.resolvedPrimaryStatus, profile.primaryStatusDuration * 60f);
+    private static void paralyzeUnit(TurretBuild source, Unit u, Color col){
+        if(PierceTurret.lancerParalyzed == null) return;
+        u.apply(PierceTurret.lancerParalyzed, 600f);
+        for(int i = 0; i < paralyzedUnits.size; i++){
+            if(paralyzedUnits.get(i).unit == u){
+                paralyzedUnits.get(i).source = source;
+                paralyzedUnits.get(i).firedAtShot = source.totalShots;
+                paralyzedUnits.get(i).timer = 0f;
+                return;
+            }
+        }
+        ParalyzedUnit pu = new ParalyzedUnit();
+        pu.unit = u;
+        pu.source = source;
+        pu.firedAtShot = source.totalShots;
+        pu.color = col;
+        paralyzedUnits.add(pu);
+        AbilityEffects.lancerParalyzeArc.at(u.x, u.y, u.hitSize, col);
+    }
+
+    private static void updateParalyzedUnits(){
+        for(int i = paralyzedUnits.size - 1; i >= 0; i--){
+            ParalyzedUnit pu = paralyzedUnits.get(i);
+            pu.timer += Time.delta;
+            if(pu.unit == null || pu.unit.dead){
+                paralyzedUnits.remove(i);
+                continue;
+            }
+
+            boolean sourceCanShootNext = false;
+            if(pu.source == null || !pu.source.isAdded() || pu.source.dead){
+                if(pu.timer >= 180f) sourceCanShootNext = true;
+            }else{
+                Turret t = (Turret)pu.source.block;
+                if(pu.timer > 30f && (pu.source.reloadCounter >= t.reload - 2f || pu.source.totalShots > pu.firedAtShot)){
+                    sourceCanShootNext = true;
                 }
             }
-        });
+
+            if(sourceCanShootNext || pu.timer >= 540f){
+                if(PierceTurret.lancerParalyzed != null){
+                    pu.unit.unapply(PierceTurret.lancerParalyzed);
+                }
+                paralyzedUnits.remove(i);
+                continue;
+            }
+
+            if(PierceTurret.lancerParalyzed != null){
+                pu.unit.apply(PierceTurret.lancerParalyzed, 30f);
+            }
+            if(tickCounter % 7 == 0){
+                AbilityEffects.lancerParalyzeArc.at(pu.unit.x, pu.unit.y, pu.unit.hitSize, pu.color);
+            }
+        }
     }
 
     private static void runCycloneRicochet(Team team, Unit firstHit, Bullet bullet, AbilityProfile profile){
@@ -1454,7 +1651,6 @@ public class AbilityManager{
         for(int i = 0; i < markedUnits.size; i++){
             if(markedUnits.get(i).unit == u){
                 markedUnits.get(i).timer = duration;
-                markedUnits.get(i).color = col;
                 return;
             }
         }
@@ -1476,23 +1672,50 @@ public class AbilityManager{
         }
     }
 
-    private static void updateDelayedEchoes(){
-        for(int i = delayedEchoes.size - 1; i >= 0; i--){
-            DelayedEcho e = delayedEchoes.get(i);
-            e.timer -= Time.delta;
-            if(e.timer <= 0f){
-                delayedEchoes.remove(i);
-                float endX = e.x + Angles.trnsx(e.angle, e.length);
-                float endY = e.y + Angles.trnsy(e.angle, e.length);
-                AbilityEffects.railEchoBeam.at(e.x, e.y, 0f, e.color, new Vec2(endX, endY));
+    private static void updateTrackedRippleShells(){
+        for(int i = trackedRippleShells.size - 1; i >= 0; i--){
+            TrackedRippleShell s = trackedRippleShells.get(i);
+            if(s.bullet != null && s.bullet.isAdded()){
+                s.lastX = s.bullet.x;
+                s.lastY = s.bullet.y;
+                continue;
+            }
+            trackedRippleShells.remove(i);
+            for(int k = 0; k < s.count; k++){
+                DelayedBomblet bomb = new DelayedBomblet();
+                bomb.team = s.team;
+                float ang = k * (360f / Math.max(1, s.count)) + Mathf.range(25f);
+                float off = Mathf.random(12f, 28f);
+                bomb.x = s.lastX + Angles.trnsx(ang, off);
+                bomb.y = s.lastY + Angles.trnsy(ang, off);
+                bomb.damage = s.damage;
+                bomb.timer = s.delay + k * 4f;
+                bomb.color = s.color;
+                bomb.status = s.status;
+                bomb.statusDuration = s.statusDuration;
+                delayedBomblets.add(bomb);
+                AbilityEffects.carpetBombletWarning.at(bomb.x, bomb.y, s.color);
+            }
+        }
+    }
 
-                Units.nearbyEnemies(e.team, (e.x + endX) * 0.5f, (e.y + endY) * 0.5f, e.length * 0.6f, u -> {
-                    if(!u.dead && Intersector.distanceSegmentPoint(e.x, e.y, endX, endY, u.x, u.y) <= u.hitSize + 10f){
-                        Fx.hitLancer.at(u.x, u.y);
-                        Damage.damage(e.team, u.x, u.y, 6f, e.damage, true, false);
-                        if(e.status != null) u.apply(e.status, e.statusDuration);
-                        if(e.knockback > 0f){
-                            u.impulse(Angles.trnsx(e.angle, e.knockback * 32f), Angles.trnsy(e.angle, e.knockback * 32f));
+    private static void updateDelayedClones(){
+        for(int i = delayedClones.size - 1; i >= 0; i--){
+            DelayedShrapnelClone c = delayedClones.get(i);
+            c.timer -= Time.delta;
+            if(c.timer <= 0f){
+                delayedClones.remove(i);
+                if(c.turret == null || !c.turret.isAdded()) continue;
+                Bullet cloneBullet = c.bulletType.create(c.turret, c.team, c.x, c.y, c.angle, c.damage, 1f, 1f, null);
+                if(cloneBullet != null){
+                    processedBullets.add(cloneBullet.id);
+                }
+                float len = c.bulletType instanceof ShrapnelBulletType ? ((ShrapnelBulletType)c.bulletType).length : 120f;
+                Units.nearbyEnemies(c.team, c.x + Angles.trnsx(c.angle, len * 0.5f), c.y + Angles.trnsy(c.angle, len * 0.5f), len * 0.6f, u -> {
+                    if(!u.dead && Math.abs(Angles.angleDist(c.angle, Angles.angle(c.x, c.y, u.x, u.y))) <= 22f){
+                        if(c.status != null) u.apply(c.status, c.statusDuration);
+                        if(c.knockback > 0f){
+                            u.impulse(Angles.trnsx(c.angle, c.knockback * 32f), Angles.trnsy(c.angle, c.knockback * 32f));
                         }
                     }
                 });
@@ -1520,17 +1743,45 @@ public class AbilityManager{
     }
 
     private static void drawVisuals(){
+        // 1. Darken rotating turret sprite ONLY (never base/bottom) during Meltdown
+        Draw.z(Layer.turret + 0.05f);
+        for(Team team : Team.all){
+            for(Building build : team.data().buildings){
+                AbilityProfile profile = profiles.get(build.block);
+                if(profile == null || profile.meltdownDuration <= 0f) continue;
+                AbilityState state = states.get(build.id);
+                if(state != null && state.cooldownTimer > 0f && build instanceof TurretBuild){
+                    TextureRegion top = Core.atlas.find(build.block.name);
+                    if(top != null && top.found()){
+                        TurretBuild tb = (TurretBuild)build;
+                        Draw.color(0.06f, 0.04f, 0.04f, 0.72f);
+                        Draw.rect(top, tb.x, tb.y, tb.drawrot());
+                        Draw.color();
+                    }
+                }
+            }
+        }
+
         Draw.z(Layer.effect);
 
+        // 2. Swarmer Hunter's Mark (corner brackets + rotating diamond)
         for(int i = 0; i < markedUnits.size; i++){
             MarkedUnit mu = markedUnits.get(i);
             if(mu.unit == null || mu.unit.dead) continue;
-            Draw.color(mu.color, Color.white, 0.25f);
-            Lines.stroke(1.6f);
-            float rad = mu.unit.hitSize + 6f + Mathf.absin(Time.time, 4f, 2f);
-            Lines.circle(mu.unit.x, mu.unit.y, rad);
+            float rad = mu.unit.hitSize + 8f + Mathf.absin(Time.time, 4f, 2f);
+            Draw.color(mu.color, Color.white, 0.3f);
+            Lines.stroke(1.8f);
+            Lines.poly(mu.unit.x, mu.unit.y, 4, rad, Time.time * 1.6f);
+            for(int k = 0; k < 4; k++){
+                float a = k * 90f + 45f;
+                float cx = mu.unit.x + Angles.trnsx(a, rad * 1.15f);
+                float cy = mu.unit.y + Angles.trnsy(a, rad * 1.15f);
+                Lines.lineAngle(cx, cy, a + 135f, 5f);
+                Lines.lineAngle(cx, cy, a - 135f, 5f);
+            }
         }
 
+        // 3. Tsunami Rolling Tidal Waves
         for(int i = 0; i < tidalWaves.size; i++){
             TidalWave w = tidalWaves.get(i);
             float alpha = Mathf.clamp(w.timer / (w.duration * 0.25f), 0.15f, 0.85f);
@@ -1544,6 +1795,7 @@ public class AbilityManager{
             Lines.arc(w.x - Angles.trnsx(w.angle, 15f), w.y - Angles.trnsy(w.angle, 15f), w.width * 0.52f, 0.34f, w.angle - 61f);
         }
 
+        // 4. Turret-specific active visuals
         for(Team team : Team.all){
             for(Building build : team.data().buildings){
                 AbilityProfile profile = profiles.get(build.block);
@@ -1551,39 +1803,59 @@ public class AbilityManager{
                 AbilityState state = states.get(build.id);
                 if(state == null) continue;
 
-                // Darken ONLY the rotating turret sprite during Meltdown (never the base/bottom!)
-                if(state.cooldownTimer > 0f && profile.meltdownDuration > 0f && build instanceof TurretBuild){
-                    TurretBuild tb = (TurretBuild)build;
-                    Turret turret = (Turret)tb.block;
-                    if(turret.region != null && turret.region.found()){
-                        float coolFrac = Mathf.clamp(state.cooldownTimer / (profile.meltdownDuration * 60f));
-                        Draw.z(Layer.turret + 0.05f);
-                        Draw.color(Color.valueOf("1b1b22"), 0.62f * coolFrac);
-                        Draw.rect(turret.region, tb.x, tb.y, tb.drawrot());
-                        Draw.color();
-                        Draw.z(Layer.effect);
-                    }
-                }
-
+                // Charging orbs (Spectre / Meltdown JJK Royal Blue-Cyan)
                 if(state.chargeTimer > 0f && build instanceof TurretBuild){
                     TurretBuild tb = (TurretBuild)build;
                     Turret turret = (Turret)tb.block;
                     float frac = 1f - (state.chargeTimer / (profile.chargeDuration * 60f));
                     float mx = tb.x + Angles.trnsx(tb.rotation, turret.shootY);
                     float my = tb.y + Angles.trnsy(tb.rotation, turret.shootY);
-                    Color col = getTurretAccentColor(tb, profile);
-                    float maxR = profile.id == AbilityId.MELTDOWN_GRANITE_BLAST ? 16f : 10f;
-                    float r = Mathf.lerp(2f, maxR, frac) + Mathf.absin(Time.time, 2f, 1.4f);
+                    Color col = profile.id == AbilityId.MELTDOWN_GRANITE_BLAST ? AbilityEffects.graniteBlue : getTurretAccentColor(tb, profile);
+                    Color mid = profile.id == AbilityId.MELTDOWN_GRANITE_BLAST ? AbilityEffects.graniteCyan : Color.white;
+                    float maxR = profile.id == AbilityId.MELTDOWN_GRANITE_BLAST ? 17f : 10f;
+                    float r = Mathf.lerp(2.5f, maxR, frac) + Mathf.absin(Time.time, 2f, 1.4f);
 
                     Draw.color(col);
                     Fill.circle(mx, my, r);
-                    Draw.color(Color.white);
-                    Fill.circle(mx, my, r * 0.45f);
-                    Lines.stroke(1.8f);
-                    Draw.color(col);
-                    Lines.circle(mx, my, r + 5f * (1f - frac));
+                    Draw.color(mid);
+                    Fill.circle(mx, my, r * 0.55f);
+                    Draw.color(AbilityEffects.graniteCore);
+                    Fill.circle(mx, my, r * 0.25f);
+                    Lines.stroke(2f);
+                    Draw.color(mid);
+                    Lines.circle(mx, my, r + 6f * (1f - frac));
                 }
 
+                // Meltdown Royal Blue / Cyan Granite Blast Beam
+                if(profile.id == AbilityId.MELTDOWN_GRANITE_BLAST && state.activeTimer > 0f && build instanceof TurretBuild){
+                    TurretBuild tb = (TurretBuild)build;
+                    Turret turret = (Turret)tb.block;
+                    float mx = tb.x + Angles.trnsx(state.lockedRotation, turret.shootY);
+                    float my = tb.y + Angles.trnsy(state.lockedRotation, turret.shootY);
+                    float len = 620f;
+                    float endX = mx + Angles.trnsx(state.lockedRotation, len);
+                    float endY = my + Angles.trnsy(state.lockedRotation, len);
+                    float pulse = 1f + Mathf.absin(Time.time, 1.8f, 0.16f);
+
+                    Draw.color(AbilityEffects.graniteBlue);
+                    Draw.alpha(0.75f);
+                    Lines.stroke(26f * pulse);
+                    Lines.line(mx, my, endX, endY);
+                    Fill.circle(mx, my, 15f * pulse);
+
+                    Draw.color(AbilityEffects.graniteCyan);
+                    Lines.stroke(14f * pulse);
+                    Lines.line(mx, my, endX, endY);
+                    Fill.circle(mx, my, 9f * pulse);
+
+                    Draw.color(AbilityEffects.graniteCore);
+                    Lines.stroke(6f * pulse);
+                    Lines.line(mx, my, endX, endY);
+                    Fill.circle(mx, my, 4.5f * pulse);
+                    Draw.color();
+                }
+
+                // Parallax tether beams
                 if(profile.id == AbilityId.PARALLAX_GRAVITY_SLAM && state.activeTimer > 0f && state.tetherMain != null && !state.tetherMain.dead){
                     Draw.color(profile.accentColor, Color.white, 0.3f);
                     Lines.stroke(2.2f);
@@ -1596,16 +1868,47 @@ public class AbilityManager{
                     Lines.circle(state.tetherMain.x, state.tetherMain.y, state.tetherMain.hitSize + 6f);
                 }
 
-                if(profile.id == AbilityId.FORESHADOW_APEX_EXECUTION && state.apexTarget != null && !state.apexTarget.dead){
+                // Foreshadow Apex Sniper Reticle + Sight Line
+                if(profile.id == AbilityId.FORESHADOW_APEX_EXECUTION && state.apexTarget != null && !state.apexTarget.dead && build instanceof TurretBuild){
+                    TurretBuild tb = (TurretBuild)build;
                     Unit tgt = state.apexTarget;
-                    float rad = tgt.hitSize + 10f + Mathf.absin(Time.time, 3f, 2f);
-                    Draw.color(profile.accentColor, Color.white, 0.35f);
-                    Lines.stroke(2f);
-                    Lines.circle(tgt.x, tgt.y, rad);
+                    Color col = getTurretAccentColor(tb, profile);
+                    float rad = tgt.hitSize + 11f + Mathf.absin(Time.time, 3f, 2f);
+
+                    Draw.color(col);
+                    Draw.alpha(0.32f);
+                    Lines.stroke(1.2f);
+                    Lines.line(tb.x, tb.y, tgt.x, tgt.y);
+
+                    Draw.alpha(0.95f);
+                    Lines.stroke(2.2f);
+                    Lines.arc(tgt.x, tgt.y, rad, 0.35f, Time.time * 2.2f);
+                    Lines.arc(tgt.x, tgt.y, rad, 0.35f, Time.time * 2.2f + 180f);
+                    Lines.stroke(1.5f);
+                    Lines.circle(tgt.x, tgt.y, rad * 0.68f);
                     for(int k = 0; k < 4; k++){
-                        float a = k * 90f + Time.time * 2f;
-                        Lines.lineAngle(tgt.x + Angles.trnsx(a, rad), tgt.y + Angles.trnsy(a, rad), a, 6f);
+                        float a = k * 90f - Time.time * 1.5f;
+                        Lines.lineAngle(tgt.x + Angles.trnsx(a, rad + 5f), tgt.y + Angles.trnsy(a, rad + 5f), a + 180f, 7f);
                     }
+                    Draw.color();
+                }
+
+                // Pierce RDR2 Dead Eye X Marks
+                if(profile.id == AbilityId.PIERCE_DEAD_EYE && state.deadEyeTargets.size > 0 && build instanceof TurretBuild){
+                    Color col = getTurretAccentColor((TurretBuild)build, profile);
+                    for(int i = 0; i < state.deadEyeTargets.size; i++){
+                        Unit tgt = state.deadEyeTargets.get(i);
+                        if(tgt == null || tgt.dead) continue;
+                        float r = Math.max(7f, tgt.hitSize * 0.7f);
+                        Draw.color(Color.scarlet, col, 0.25f);
+                        Lines.stroke(2.4f);
+                        Lines.circle(tgt.x, tgt.y, r + 3f);
+                        for(int k = 0; k < 4; k++){
+                            float a = k * 90f + 45f;
+                            Lines.lineAngle(tgt.x, tgt.y, a, r);
+                        }
+                    }
+                    Draw.color();
                 }
             }
         }
@@ -1615,8 +1918,8 @@ public class AbilityManager{
 
     private static Color getTurretAccentColor(TurretBuild tb, AbilityProfile profile){
         if(tb.hasAmmo()){
-            Color c = extractBulletColor(tb.peekAmmo(), null);
-            if(c != null) return c;
+            BulletType ammo = tb.peekAmmo();
+            if(ammo != null) return getAmmoColor(ammo, profile.accentColor);
         }
         if(tb.liquids != null && tb.liquids.currentAmount() > 0.01f && tb.liquids.current() != null){
             return tb.liquids.current().color;
@@ -1626,58 +1929,51 @@ public class AbilityManager{
 
     private static Color getBulletColor(Bullet b, AbilityProfile profile){
         if(b != null && b.type != null){
-            Color c = extractBulletColor(b.type, null);
-            if(c != null) return c;
+            return getAmmoColor(b.type, profile.accentColor);
         }
         return profile.accentColor;
     }
 
-    private static Color extractBulletColor(BulletType type, Color fallback){
-        if(type == null) return fallback;
-        if(type instanceof LiquidBulletType){
-            LiquidBulletType lb = (LiquidBulletType)type;
-            if(lb.liquid != null) return lb.liquid.color;
-        }
-        if(type instanceof ContinuousFlameBulletType){
-            Color c = pickNonWhiteColor(((ContinuousFlameBulletType)type).colors);
-            if(c != null) return c;
-        }
-        if(type instanceof ContinuousLaserBulletType){
-            Color c = pickNonWhiteColor(((ContinuousLaserBulletType)type).colors);
-            if(c != null) return c;
+    private static Color getAmmoColor(BulletType type, Color fallback){
+        if(type instanceof ShrapnelBulletType){
+            Color c = ((ShrapnelBulletType)type).toColor;
+            if(c != null && !c.equals(Color.white)) return c;
         }
         if(type instanceof LaserBulletType){
-            Color c = pickNonWhiteColor(((LaserBulletType)type).colors);
-            if(c != null) return c;
+            Color[] cols = ((LaserBulletType)type).colors;
+            if(cols != null && cols.length > 0){
+                for(Color c : cols){
+                    if(c != null && !c.equals(Color.white) && c.a > 0.2f) return c;
+                }
+            }
         }
-        if(type instanceof ShrapnelBulletType){
-            ShrapnelBulletType sb = (ShrapnelBulletType)type;
-            if(isUsableColor(sb.fromColor)) return sb.fromColor;
-            if(isUsableColor(sb.toColor)) return sb.toColor;
+        if(type instanceof ContinuousLaserBulletType){
+            Color[] cols = ((ContinuousLaserBulletType)type).colors;
+            if(cols != null && cols.length > 0){
+                for(Color c : cols){
+                    if(c != null && !c.equals(Color.white) && c.a > 0.2f) return c;
+                }
+            }
         }
-        if(type instanceof BasicBulletType){
-            BasicBulletType bb = (BasicBulletType)type;
-            if(isUsableColor(bb.frontColor)) return bb.frontColor;
-            if(isUsableColor(bb.backColor)) return bb.backColor;
-            if(isUsableColor(bb.trailColor)) return bb.trailColor;
+        if(type instanceof LiquidBulletType && ((LiquidBulletType)type).liquid != null){
+            return ((LiquidBulletType)type).liquid.color;
         }
-        if(isUsableColor(type.hitColor)) return type.hitColor;
-        if(isUsableColor(type.trailColor)) return type.trailColor;
-        if(isUsableColor(type.lightColor)) return type.lightColor;
+        if(type.trailColor != null && !type.trailColor.equals(Color.white) && !type.trailColor.equals(Pal.powerLight) && type.trailColor.a > 0.1f){
+            return type.trailColor;
+        }
+        if(type.backColor != null && !type.backColor.equals(Color.white) && !type.backColor.equals(Pal.powerLight) && type.backColor.a > 0.1f){
+            return type.backColor;
+        }
+        if(type.frontColor != null && !type.frontColor.equals(Color.white) && !type.frontColor.equals(Pal.powerLight) && type.frontColor.a > 0.1f){
+            return type.frontColor;
+        }
+        if(type.hitColor != null && !type.hitColor.equals(Color.white) && !type.hitColor.equals(Pal.powerLight) && type.hitColor.a > 0.1f){
+            return type.hitColor;
+        }
+        if(type.lightColor != null && !type.lightColor.equals(Pal.powerLight) && type.lightColor.a > 0.1f){
+            return type.lightColor;
+        }
         return fallback;
-    }
-
-    private static Color pickNonWhiteColor(Color[] arr){
-        if(arr == null || arr.length == 0) return null;
-        for(int i = arr.length - 1; i >= 0; i--){
-            if(isUsableColor(arr[i])) return arr[i];
-        }
-        return arr[arr.length - 1];
-    }
-
-    private static boolean isUsableColor(Color c){
-        if(c == null || c.a <= 0.1f) return false;
-        return !(c.r > 0.96f && c.g > 0.96f && c.b > 0.96f);
     }
 
     private static void pushUnitAway(float ox, float oy, Unit u, float force){
@@ -1698,9 +1994,11 @@ public class AbilityManager{
         bulletTurretTargets.clear();
         bulletShotKeys.clear();
         countedUnitHitShots.clear();
-        delayedEchoes.clear();
+        delayedClones.clear();
+        trackedRippleShells.clear();
         delayedBomblets.clear();
         markedUnits.clear();
+        paralyzedUnits.clear();
         spinningUnits.clear();
         tidalWaves.clear();
         trackedEnemyBullets.clear();
@@ -1728,11 +2026,26 @@ public class AbilityManager{
         Unit apexTarget = null;
         Unit tetherMain = null;
         final Seq<Unit> tetherExtras = new Seq<>();
+
+        int deadEyeRemaining = 0;
+        float deadEyeFireTimer = 0f;
+        final Seq<Unit> deadEyeTargets = new Seq<>();
     }
 
-    private static class DelayedEcho{
+    private static class DelayedShrapnelClone{
+        TurretBuild turret;
         Team team;
-        float x, y, angle, length, damage, timer, knockback, statusDuration;
+        BulletType bulletType;
+        float x, y, angle, damage, timer, knockback, statusDuration;
+        Color color;
+        StatusEffect status;
+    }
+
+    private static class TrackedRippleShell{
+        Bullet bullet;
+        Team team;
+        float lastX, lastY, damage, delay, statusDuration;
+        int count;
         Color color;
         StatusEffect status;
     }
@@ -1746,6 +2059,14 @@ public class AbilityManager{
 
     private static class MarkedUnit{
         Unit unit;
+        float timer;
+        Color color;
+    }
+
+    private static class ParalyzedUnit{
+        Unit unit;
+        TurretBuild source;
+        int firedAtShot;
         float timer;
         Color color;
     }
@@ -1770,4 +2091,4 @@ public class AbilityManager{
         int ownerId;
         int lastSeenTick;
     }
-                                    }
+           }
