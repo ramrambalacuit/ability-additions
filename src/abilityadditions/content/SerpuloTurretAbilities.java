@@ -267,16 +267,16 @@ public class SerpuloTurretAbilities{
             primaryStatusDuration = 2.5f;
         }});
 
-        // 17. Spectre (4x4) - Singularity Orb
+        // 17. Spectre (4x4) - Singularity Orb (no Meltdown)
         register(Blocks.spectre, new AbilityProfile(){{
             id = AbilityId.SPECTRE_SINGULARITY_ORB;
             turretName = "spectre";
             abilityName = "Singularity Orb";
-            description = "Every 35th shot charges an ammo-colored absorbing orb for 3s, firing at 5x original bullet damage + mov-armor-piercing-tier-3, then enters a 12s Meltdown.";
+            description = "Every 35th shot charges an ammo-colored absorbing orb for 3s, firing at 5x original bullet damage + mov-armor-piercing-tier-3.";
             accentColor = Color.valueOf("ffba70");
             trigger = AbilityTrigger.everyNShots(35, 0f);
             chargeDuration = 3f;
-            meltdownDuration = 12f;
+            meltdownDuration = 0f;
             damageMultiplier = 5.0f;
             canTurnWhileCharging = false;
             primaryStatusEffect = "mov-armor-piercing-tier-3";
@@ -288,14 +288,14 @@ public class SerpuloTurretAbilities{
             id = AbilityId.MELTDOWN_GRANITE_BLAST;
             turretName = "meltdown";
             abilityName = "Granite Blast";
-            description = "Every 7th cycle charges an intense Royal Blue/Cyan absorbing core for 7s (aimable), then locks rotation completely to unleash a single empowered Granite Blast (+ mov-oxidation-tier-3), followed by a 20s Meltdown.";
+            description = "Every 7th cycle charges an intense Royal Blue/Cyan absorbing core for 7s, then locks rotation completely to unleash a single empowered Granite Blast (+ mov-oxidation-tier-3), followed by a 20s Meltdown.";
             accentColor = Color.valueOf("4a7fe5");
             trigger = AbilityTrigger.everyNShots(7, 0f);
             chargeDuration = 7f;
             activeDuration = 7.5f;
             meltdownDuration = 20f;
             damageMultiplier = 2.2f;
-            canTurnWhileCharging = true;
+            canTurnWhileCharging = false;
             lockRotationWhileActive = true;
             primaryStatusEffect = "mov-oxidation-tier-3";
             primaryStatusDuration = 5f;
@@ -324,9 +324,10 @@ public class SerpuloTurretAbilities{
                 id = AbilityId.PIERCE_DEAD_EYE;
                 turretName = "pierce";
                 abilityName = "Dead Eye";
-                description = "5 confirmed unit hits stamp Dead Eye X-marks on 5 random enemies in range and rapid-fire 5 near-instant piercing hypershots matching the loaded ammo color.";
+                description = "5 confirmed unit hits stamp Dead Eye X-marks on 5 random enemies in range and rapid-fire 5 near-instant piercing hypershots (3.2x damage) matching the loaded ammo color.";
                 accentColor = Color.valueOf("ff6b57");
                 trigger = AbilityTrigger.confirmedUnitHits(5);
+                damageMultiplier = 3.2f;
                 deadEyeShots = 5;
                 deadEyeInterval = 3.2f;
             }});
@@ -338,4 +339,4 @@ public class SerpuloTurretAbilities{
         all.add(profile);
         AbilityManager.register(block, profile);
     }
-                                                         }
+                }
