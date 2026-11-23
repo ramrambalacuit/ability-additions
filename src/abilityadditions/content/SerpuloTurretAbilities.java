@@ -35,7 +35,7 @@ public class SerpuloTurretAbilities{
             primaryStatusDuration = 2.5f;
         }});
 
-        // 2. Scatter (2x2) - Snake Swarm (no Meltdown)
+        // 2. Scatter (2x2) - Snake Swarm
         register(Blocks.scatter, new AbilityProfile(){{
             id = AbilityId.SCATTER_SNAKE_SWARM;
             turretName = "scatter";
@@ -84,7 +84,7 @@ public class SerpuloTurretAbilities{
             id = AbilityId.SCORCH_THERMAL_RAMP;
             turretName = "scorch";
             abilityName = "Thermal Ramp";
-            description = "Firing for 10s fills Heat to 100% (ramping up to 1.4x damage & 1.55x fire rate), overheats 5s (+35% flame reach + melting), then enters a 3s Meltdown.";
+            description = "Firing for 10s fills Heat to 100% (ramping up to 1.4x damage & 1.55x fire rate), overheats 5s (+35% flame reach + melting), then enters a 3s Cooldown.";
             accentColor = Color.valueOf("ff7442");
             trigger = AbilityTrigger.continuousHeat(10f, 5f);
             activeDuration = 5f;
@@ -267,18 +267,17 @@ public class SerpuloTurretAbilities{
             primaryStatusDuration = 2.5f;
         }});
 
-        // 17. Spectre (4x4) - Singularity Orb (no Meltdown)
+        // 17. Spectre (4x4) - Giant Shell (PvZ2 Repeater Big Pea)
         register(Blocks.spectre, new AbilityProfile(){{
             id = AbilityId.SPECTRE_SINGULARITY_ORB;
             turretName = "spectre";
-            abilityName = "Singularity Orb";
-            description = "Every 35th shot charges an ammo-colored absorbing orb for 3s, firing at 5x original bullet damage + mov-armor-piercing-tier-3.";
+            abilityName = "Giant Shell";
+            description = "Every 15th shot blasts one colossal 5x-damage mega-shell matching the loaded ammo color, dealing heavy shockwave splash, knockback, and mov-armor-piercing-tier-3.";
             accentColor = Color.valueOf("ffba70");
-            trigger = AbilityTrigger.everyNShots(35, 0f);
-            chargeDuration = 3f;
+            trigger = AbilityTrigger.everyNShots(15, 0f);
+            chargeDuration = 0f;
             meltdownDuration = 0f;
             damageMultiplier = 5.0f;
-            canTurnWhileCharging = false;
             primaryStatusEffect = "mov-armor-piercing-tier-3";
             primaryStatusDuration = 4f;
         }});
@@ -288,11 +287,11 @@ public class SerpuloTurretAbilities{
             id = AbilityId.MELTDOWN_GRANITE_BLAST;
             turretName = "meltdown";
             abilityName = "Granite Blast";
-            description = "Every 7th cycle charges an intense Royal Blue/Cyan absorbing core for 7s, then locks rotation completely to unleash a single empowered Granite Blast (+ mov-oxidation-tier-3), followed by a 20s Meltdown.";
+            description = "Every 7th cycle charges a Royal Blue/Cyan spiral core for 5.5s, then locks rotation to unleash a single empowered Granite Blast (+ mov-oxidation-tier-3), followed by a 20s Cooldown.";
             accentColor = Color.valueOf("4a7fe5");
             trigger = AbilityTrigger.everyNShots(7, 0f);
-            chargeDuration = 7f;
-            activeDuration = 7.5f;
+            chargeDuration = 5.5f;
+            activeDuration = 7.0f;
             meltdownDuration = 20f;
             damageMultiplier = 2.2f;
             canTurnWhileCharging = false;
@@ -329,7 +328,7 @@ public class SerpuloTurretAbilities{
                 trigger = AbilityTrigger.confirmedUnitHits(5);
                 damageMultiplier = 3.2f;
                 deadEyeShots = 5;
-                deadEyeInterval = 3.2f;
+                deadEyeInterval = 3.0f;
             }});
         }
     }
@@ -339,4 +338,4 @@ public class SerpuloTurretAbilities{
         all.add(profile);
         AbilityManager.register(block, profile);
     }
-                }
+                                                     }
