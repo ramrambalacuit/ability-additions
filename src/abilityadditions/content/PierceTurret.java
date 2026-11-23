@@ -40,16 +40,16 @@ public class PierceTurret{
 
         pierce = new ItemTurret("pierce"){{
             localizedName = "Pierce";
-            description = "Long-range 1x1 rifle turret with 3x Duo range. Fires high-velocity rounds that pierce straight through multiple enemies, even at point-blank.";
+            description = "Long-range 1x1 rifle turret with 2x Duo range. Fires high-velocity rounds that pierce straight through multiple enemies, even at point-blank.";
             requirements(Category.turret, with(Items.copper, 75, Items.graphite, 35, Items.lead, 40));
 
             size = 1;
             health = 420;
             armor = 2f;
-            range = 552f;
-            reload = 105f;
-            rotateSpeed = 6.5f;
-            inaccuracy = 0.5f;
+            range = 368f;
+            reload = 95f;
+            rotateSpeed = 7f;
+            inaccuracy = 0.4f;
             shootCone = 6f;
             shootY = 3f;
             recoil = 1.2f;
@@ -64,10 +64,10 @@ public class PierceTurret{
             researchCostMultiplier = 0.25f;
 
             ammo(
-                Items.copper, new BasicBulletType(11f, 58f){{
+                Items.copper, new BasicBulletType(16f, 68f){{
                     width = 6f;
-                    height = 12f;
-                    lifetime = 54f;
+                    height = 13f;
+                    lifetime = 26f;
                     ammoMultiplier = 4f;
                     pierce = true;
                     pierceCap = 4;
@@ -80,10 +80,10 @@ public class PierceTurret{
                     lightColor = Color.valueOf("fff8e8");
                     hitEffect = despawnEffect = Fx.hitBulletColor;
                 }},
-                Items.scrap, new BasicBulletType(12f, 42f){{
+                Items.scrap, new BasicBulletType(18f, 52f){{
                     width = 5.5f;
-                    height = 11f;
-                    lifetime = 50f;
+                    height = 12f;
+                    lifetime = 24f;
                     ammoMultiplier = 4f;
                     reloadMultiplier = 0.85f;
                     pierce = true;
@@ -102,10 +102,10 @@ public class PierceTurret{
                         statusDuration = 180f;
                     }
                 }},
-                Items.graphite, new BasicBulletType(9.5f, 88f){{
+                Items.graphite, new BasicBulletType(15f, 96f){{
                     width = 7.5f;
-                    height = 14f;
-                    lifetime = 62f;
+                    height = 15f;
+                    lifetime = 28f;
                     ammoMultiplier = 3f;
                     reloadMultiplier = 0.8f;
                     pierce = true;
@@ -120,14 +120,14 @@ public class PierceTurret{
                     lightColor = Color.valueOf("95abd9");
                     hitEffect = despawnEffect = Fx.hitBulletColor;
                 }},
-                Items.silicon, new BasicBulletType(11.5f, 64f){{
+                Items.silicon, new BasicBulletType(17f, 74f){{
                     width = 6f;
-                    height = 12f;
-                    lifetime = 52f;
+                    height = 13f;
+                    lifetime = 25f;
                     ammoMultiplier = 6f;
                     reloadMultiplier = 1.35f;
-                    homingPower = 0.03f;
-                    homingRange = 70f;
+                    homingPower = 0.05f;
+                    homingRange = 80f;
                     pierce = true;
                     pierceCap = 4;
                     pierceBuilding = false;
@@ -139,16 +139,16 @@ public class PierceTurret{
                     lightColor = Color.valueOf("8e9097");
                     hitEffect = despawnEffect = Fx.hitBulletColor;
                 }},
-                Items.pyratite, new BasicBulletType(10.5f, 68f){{
+                Items.pyratite, new BasicBulletType(16f, 78f){{
                     width = 6f;
-                    height = 13f;
-                    lifetime = 56f;
+                    height = 14f;
+                    lifetime = 27f;
                     ammoMultiplier = 4f;
                     reloadMultiplier = 1.2f;
                     makeFire = true;
                     status = StatusEffects.burning;
                     statusDuration = 300f;
-                    splashDamage = 24f;
+                    splashDamage = 26f;
                     splashDamageRadius = 12f;
                     pierce = true;
                     pierceCap = 4;
@@ -173,4 +173,4 @@ public class PierceTurret{
             new TechNode(duoNode, pierce, pierce.researchRequirements());
         }
     }
-                                                           }
+} 
