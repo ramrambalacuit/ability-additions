@@ -28,9 +28,10 @@ public class TestDummyContent{
     public static UnitType dummyAir;
     public static Block dummyPad;
 
-    private static final float SNAP_BACK_DELAY = 150f; // 2.5s without taking damage
+    private static final float SNAP_BACK_DELAY = 150f; // 2.5s of being completely still and undamaged
     private static final float DPS_WINDOW_TICKS = 60f; // 1.0s rolling DPS window
     private static final float DUMMY_MAX_HEALTH = 1_000_000f;
+    private static final float MOVE_EPSILON = 0.0004f; // squared speed / squared per-tick movement treated as "moving"
 
     private static final IntMap<DummyStats> statsByUnitId = new IntMap<>();
     private static boolean eventsRegistered = false;
@@ -57,7 +58,7 @@ public class TestDummyContent{
             sync = true;
             buildType = TestDummyPadBuild::new;
 
-            // Config byte encoding: bit 0 = autoTarget, bit 1 = airMode, bit 2 = reset action
+            // Config encoding: bit 0 = autoTarget, bit 1 = airMode, -1 = reset action
             config(Integer.class, (TestDummyPadBuild build, Integer val) -> {
                 if(val == null) return;
                 if(val == -1){
@@ -105,7 +106,7 @@ public class TestDummyContent{
             if(e.unit == null) return;
             DummyStats st = statsByUnitId.get(e.unit.id);
             if(st != null){
-                st.noDamageTimer = 0f;
+                st.idleTimer = 0f;
             }
         });
 
@@ -133,10 +134,13 @@ public class TestDummyContent{
             logicControllable = false;
             allowedInPayloads = false;
             useUnitCap = false;
-            isEnemy = false;
+            isEnemy = false;   // not counted as a wave enemy
             physics = true;
             hittable = true;
-            killable = false;
+            // IMPORTANT: must be true, otherwise the game ignores damage to health
+            // and DPS / total damage can never be measured. Immortality is handled
+            // in update() by refilling health every tick.
+            killable = true;
             targetable = true; // overridden dynamically per-unit below
             healFlash = false;
             drawCell = false;
@@ -152,15 +156,10 @@ public class TestDummyContent{
         }
 
             @Override
-            public boolean killable(Unit unit){
-                return false;
-            }
-
-            @Override
             public boolean targetable(Unit unit, Team targeter){
                 DummyStats st = statsByUnitId.get(unit.id);
-                if(st == null || !st.autoTarget) return false;
-                return targeter != unit.team;
+                if(st == null || !st.autoTarget) return false; // Manual: never auto-targeted
+                return targeter != unit.team;                   // Auto: enemies see it as a target
             }
 
             @Override
@@ -181,17 +180,28 @@ public class TestDummyContent{
                     unit.maxHealth = DUMMY_MAX_HEALTH;
                 }
 
+                // Damage taken since last tick, then refill
                 float tickDamage = Math.max(0f, st.prevHealth - unit.health);
                 unit.health = unit.maxHealth;
                 st.prevHealth = unit.maxHealth;
 
+                // Is it being pushed around / still sliding?
+                boolean moving = unit.vel.len2() > MOVE_EPSILON
+                    || Mathf.dst2(unit.x, unit.y, st.lastX, st.lastY) > MOVE_EPSILON;
+                st.lastX = unit.x;
+                st.lastY = unit.y;
+
                 if(tickDamage > 0.001f){
-                    st.noDamageTimer = 0f;
                     st.lastHit = tickDamage;
                     st.totalDamage += tickDamage;
                     st.samples.add(new DamageSample(Time.time, tickDamage));
+                }
+
+                // Idle timer only counts up while NOT damaged and NOT moving
+                if(tickDamage > 0.001f || moving){
+                    st.idleTimer = 0f;
                 }else{
-                    st.noDamageTimer += Time.delta;
+                    st.idleTimer += Time.delta;
                 }
 
                 // Prune rolling 1s DPS samples
@@ -208,14 +218,17 @@ public class TestDummyContent{
                     st.peakDps = sum;
                 }
 
-                // Return to pad center only after stopping taking damage for 2.5s
+                // Return to pad center only after being still + undamaged for 2.5s
                 if(st.pad != null && st.pad.isAdded()){
-                    if(st.noDamageTimer >= SNAP_BACK_DELAY && !unit.within(st.pad.x, st.pad.y, 2f)){
+                    if(st.idleTimer >= SNAP_BACK_DELAY && !unit.within(st.pad.x, st.pad.y, 2f)){
                         Fx.teleport.at(unit.x, unit.y, Pal.accent);
                         unit.set(st.pad.x, st.pad.y);
                         unit.vel.setZero();
                         unit.rotation = 90f;
                         Fx.teleportActivate.at(st.pad.x, st.pad.y, Pal.accent);
+                        st.idleTimer = 0f;
+                        st.lastX = unit.x;
+                        st.lastY = unit.y;
                     }
                 }else if(!Vars.net.client()){
                     statsByUnitId.remove(unit.id);
@@ -306,6 +319,13 @@ public class TestDummyContent{
         public boolean airMode = false;    // Ground by default on spawn
         public @Nullable Unit dummy;
 
+        /** The dummy must be on a team that is hostile to this pad's team, otherwise nothing will target it.
+         *  (Derelict is always ignored by targeting.) */
+        private Team dummyTeam(){
+            Team wave = Vars.state.rules.waveTeam;
+            return wave != team ? wave : Team.sharded;
+        }
+
         @Override
         public void placed(){
             super.placed();
@@ -364,7 +384,7 @@ public class TestDummyContent{
             UnitType type = airMode ? dummyAir : dummyGround;
             if(type == null) return;
 
-            Unit spawned = type.spawn(Team.derelict, x, y, 90f);
+            Unit spawned = type.spawn(dummyTeam(), x, y, 90f);
             spawned.maxHealth = DUMMY_MAX_HEALTH;
             spawned.health = DUMMY_MAX_HEALTH;
 
@@ -372,6 +392,9 @@ public class TestDummyContent{
             st.pad = this;
             st.autoTarget = autoTarget;
             st.prevHealth = DUMMY_MAX_HEALTH;
+            st.idleTimer = 0f;
+            st.lastX = spawned.x;
+            st.lastY = spawned.y;
             statsByUnitId.put(spawned.id, st);
             dummy = spawned;
         }
@@ -384,7 +407,7 @@ public class TestDummyContent{
                     st.lastHit = 0f;
                     st.currentDps = 0f;
                     st.peakDps = 0f;
-                    st.noDamageTimer = 0f;
+                    st.idleTimer = 0f;
                     st.samples.clear();
                 }
                 for(StatusEffect eff : Vars.content.statusEffects()){
@@ -395,6 +418,10 @@ public class TestDummyContent{
                 dummy.set(x, y);
                 dummy.vel.setZero();
                 dummy.rotation = 90f;
+                if(st != null){
+                    st.lastX = dummy.x;
+                    st.lastY = dummy.y;
+                }
                 Fx.teleportActivate.at(x, y, Pal.accent);
             }
         }
@@ -452,7 +479,9 @@ public class TestDummyContent{
         float lastHit = 0f;
         float currentDps = 0f;
         float peakDps = 0f;
-        float noDamageTimer = 0f;
+        float idleTimer = 0f;   // ticks spent still and undamaged
+        float lastX = 0f;
+        float lastY = 0f;
         final Seq<DamageSample> samples = new Seq<>();
     }
 
@@ -465,4 +494,4 @@ public class TestDummyContent{
             this.amount = amount;
         }
     }
-                        } 
+                                               } 
