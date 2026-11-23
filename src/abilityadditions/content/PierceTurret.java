@@ -1,10 +1,12 @@
 package abilityadditions.content;
 
+import arc.Events;
 import arc.graphics.*;
 import mindustry.*;
 import mindustry.content.*;
 import mindustry.content.TechTree.*;
 import mindustry.entities.bullet.*;
+import mindustry.game.EventType.ClientLoadEvent;
 import mindustry.gen.*;
 import mindustry.graphics.*;
 import mindustry.type.*;
@@ -163,14 +165,22 @@ public class PierceTurret{
                 }}
             );
         }};
+
+        // Try to add the research node right away. If the base tech tree isn't ready yet
+        // at this point, retry once the game has finished loading. attachTechTree() is safe
+        // to call any number of times, it never adds the node twice.
+        attachTechTree();
+        Events.on(ClientLoadEvent.class, e -> attachTechTree());
     }
 
+    /** Adds Pierce to the research tree as a child of Duo (idempotent). */
     public static void attachTechTree(){
         if(pierce == null) return;
         if(TechTree.all.find(t -> t.content == pierce) != null) return;
+
         TechNode duoNode = TechTree.all.find(t -> t.content == Blocks.duo);
-        if(duoNode != null){
-            new TechNode(duoNode, pierce, pierce.researchRequirements());
-        }
+        if(duoNode == null) return; // tech tree not ready yet, will be retried
+
+        new TechNode(duoNode, pierce, pierce.researchRequirements());
     }
-} 
+}
