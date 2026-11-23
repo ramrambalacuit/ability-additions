@@ -1,4 +1,4 @@
-    package abilityadditions.content;
+package abilityadditions.content;
 
 import abilityadditions.core.*;
 import abilityadditions.core.AbilityProfile.*;
@@ -35,16 +35,16 @@ public class SerpuloTurretAbilities{
             primaryStatusDuration = 2.5f;
         }});
 
-        // 2. Scatter (2x2) - Snake Swarm
+        // 2. Scatter (2x2) - Snake Swarm (no Meltdown)
         register(Blocks.scatter, new AbilityProfile(){{
             id = AbilityId.SCATTER_SNAKE_SWARM;
             turretName = "scatter";
             abilityName = "Snake Swarm";
-            description = "10% chance per volley to convert flak into homing snake missiles (1.4x damage) for the volley, then enters a 2s Meltdown.";
+            description = "10% chance per volley to convert flak into homing snake missiles (1.4x damage) matching the loaded ammo color.";
             accentColor = Color.valueOf("9cff85");
             trigger = AbilityTrigger.chancePerCycle(0.10f, 1.8f);
             activeDuration = 1.8f;
-            meltdownDuration = 2.0f;
+            meltdownDuration = 0f;
             damageMultiplier = 1.4f;
             primaryStatusEffect = "mov-motor-deceleration-tier-1";
             primaryStatusDuration = 2.5f;
@@ -69,7 +69,7 @@ public class SerpuloTurretAbilities{
             id = AbilityId.HAIL_SEISMIC_MORTAR;
             turretName = "hail";
             abilityName = "Seismic Mortar";
-            description = "Every 5th shot deals 1.65x damage, pulls nearby ground enemies inward, and applies mov-damage-increase-tier-1.";
+            description = "Every 5th shot deals 1.65x damage, pulls nearby ground enemies inward (scaled by unit size), and applies mov-damage-increase-tier-1.";
             accentColor = Color.valueOf("ffb066");
             trigger = AbilityTrigger.everyNShots(5, 0f);
             damageMultiplier = 1.65f;
@@ -115,18 +115,14 @@ public class SerpuloTurretAbilities{
             primaryStatusDuration = 2.5f;
         }});
 
-        // 7. Lancer (2x2) - Rail Echo
+        // 7. Lancer (2x2) - Arc Paralysis
         register(Blocks.lancer, new AbilityProfile(){{
-            id = AbilityId.LANCER_RAIL_ECHO;
+            id = AbilityId.LANCER_ARC_PARALYSIS;
             turretName = "lancer";
-            abilityName = "Rail Echo";
-            description = "Every 3rd shot fires a 0.45s delayed echo beam along the same line (45% damage) + mov-emp-tier-2.";
-            accentColor = Color.valueOf("82d4ff");
+            abilityName = "Arc Paralysis";
+            description = "Every 3rd shot paralyzes all enemy units hit—freezing movement and weapons, darkening their sprite with size-scaled lightning—until Lancer is ready to fire again.";
+            accentColor = Color.valueOf("a9d8ff");
             trigger = AbilityTrigger.everyNShots(3, 0f);
-            echoDelay = 0.45f;
-            echoDamageFraction = 0.45f;
-            primaryStatusEffect = "mov-emp-tier-2";
-            primaryStatusDuration = 2.5f;
         }});
 
         // 8. Ripple (3x3) - Carpet Bomblets
@@ -134,7 +130,7 @@ public class SerpuloTurretAbilities{
             id = AbilityId.RIPPLE_CARPET_BOMBLETS;
             turretName = "ripple";
             abilityName = "Carpet Bomblets";
-            description = "25% chance per volley to deal 1.25x damage, scatter 3 delayed ground bomblets (0.55s later), and apply mov-motor-deceleration-tier-2.";
+            description = "25% chance per volley to deal 1.25x damage and drop 3 delayed ground bomblets around the shell's impact crater (+ mov-motor-deceleration-tier-2).";
             accentColor = Color.valueOf("ff944d");
             trigger = AbilityTrigger.chancePerCycle(0.25f, 1.2f);
             damageMultiplier = 1.25f;
@@ -150,7 +146,7 @@ public class SerpuloTurretAbilities{
             id = AbilityId.FUSE_ECHO_KICK;
             turretName = "fuse";
             abilityName = "Echo Kick";
-            description = "5% chance per shot to fire a 0.18s delayed 10%-damage clone blast with heavy knockback + mov-armor-piercing-tier-2.";
+            description = "5% chance per shot to fire a 0.18s delayed 10%-damage shrapnel clone blast with heavy knockback + mov-armor-piercing-tier-2.";
             accentColor = Color.valueOf("ff7ad9");
             trigger = AbilityTrigger.chancePerCycle(0.05f, 0f);
             echoDelay = 0.18f;
@@ -165,7 +161,7 @@ public class SerpuloTurretAbilities{
             id = AbilityId.SWARMER_HUNTERS_MARK;
             turretName = "swarmer";
             abilityName = "Hunter's Mark";
-            description = "20% chance per volley to mark flying enemies for 4s (+45% Swarmer missile damage) + mov-motor-deceleration-tier-2.";
+            description = "20% chance per volley to lock flying enemies with tactical hunter brackets for 4s (+45% Swarmer missile damage) + mov-motor-deceleration-tier-2.";
             accentColor = Color.valueOf("ffde6b");
             trigger = AbilityTrigger.chancePerCycle(0.20f, 1.0f);
             markDuration = 4f;
@@ -292,8 +288,8 @@ public class SerpuloTurretAbilities{
             id = AbilityId.MELTDOWN_GRANITE_BLAST;
             turretName = "meltdown";
             abilityName = "Granite Blast";
-            description = "Every 7th cycle charges an intense absorbing core for 7s (aimable), then locks rotation to unleash an empowered Granite Blast (+ mov-oxidation-tier-3), followed by a 20s Meltdown.";
-            accentColor = Color.valueOf("ff5e4d");
+            description = "Every 7th cycle charges an intense Royal Blue/Cyan absorbing core for 7s (aimable), then locks rotation completely to unleash a single empowered Granite Blast (+ mov-oxidation-tier-3), followed by a 20s Meltdown.";
+            accentColor = Color.valueOf("4a7fe5");
             trigger = AbilityTrigger.everyNShots(7, 0f);
             chargeDuration = 7f;
             activeDuration = 7.5f;
@@ -310,7 +306,7 @@ public class SerpuloTurretAbilities{
             id = AbilityId.FORESHADOW_APEX_EXECUTION;
             turretName = "foreshadow";
             abilityName = "Apex Execution";
-            description = "5 confirmed unit hits lock onto the highest-HP enemy in range, empowering the next hit with 2.2x damage + 10% Max HP bonus + mov-high-emp, mov-armor-piercing-tier-3, and mov-damage-reduction-tier-3.";
+            description = "5 confirmed unit hits lock onto the highest-HP enemy in range with sniper reticles, empowering the next hit with 2.2x damage + 10% Max HP bonus + mov-high-emp, mov-armor-piercing-tier-3, and mov-damage-reduction-tier-3.";
             accentColor = Color.valueOf("ffe77a");
             trigger = AbilityTrigger.confirmedUnitHits(5);
             damageMultiplier = 2.2f;
@@ -321,6 +317,20 @@ public class SerpuloTurretAbilities{
             tertiaryStatusEffect = "mov-damage-reduction-tier-3";
             secondaryStatusDuration = 5f;
         }});
+
+        // 20. Pierce (1x1 New Mod Turret) - Dead Eye
+        if(PierceTurret.pierce != null){
+            register(PierceTurret.pierce, new AbilityProfile(){{
+                id = AbilityId.PIERCE_DEAD_EYE;
+                turretName = "pierce";
+                abilityName = "Dead Eye";
+                description = "5 confirmed unit hits stamp Dead Eye X-marks on 5 random enemies in range and rapid-fire 5 near-instant piercing hypershots matching the loaded ammo color.";
+                accentColor = Color.valueOf("ff6b57");
+                trigger = AbilityTrigger.confirmedUnitHits(5);
+                deadEyeShots = 5;
+                deadEyeInterval = 3.2f;
+            }});
+        }
     }
 
     private static void register(Block block, AbilityProfile profile){
@@ -328,4 +338,4 @@ public class SerpuloTurretAbilities{
         all.add(profile);
         AbilityManager.register(block, profile);
     }
-                } 
+                                                         }
