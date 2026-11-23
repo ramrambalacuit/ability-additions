@@ -47,13 +47,16 @@ public class PierceTurret{
             health = 420;
             armor = 2f;
             range = 552f;
-            reload = 88f;
+            reload = 105f;
             rotateSpeed = 6.5f;
             inaccuracy = 0.5f;
             shootCone = 6f;
             shootY = 3f;
             recoil = 1.2f;
             maxAmmo = 32;
+            outlineIcon = true;
+            outlineColor = Pal.darkerMetal;
+            outlineRadius = 4;
             shootSound = Sounds.shootDuo;
             ammoUseEffect = Fx.casing1;
             coolant = consumeCoolant(0.1f);
@@ -61,7 +64,7 @@ public class PierceTurret{
             researchCostMultiplier = 0.25f;
 
             ammo(
-                Items.copper, new BasicBulletType(11f, 28f){{
+                Items.copper, new BasicBulletType(11f, 58f){{
                     width = 6f;
                     height = 12f;
                     lifetime = 54f;
@@ -69,7 +72,7 @@ public class PierceTurret{
                     pierce = true;
                     pierceCap = 4;
                     pierceBuilding = false;
-                    pierceDamageFactor = 0.85f;
+                    pierceDamageFactor = 0.9f;
                     trailLength = 10;
                     trailWidth = 1.4f;
                     frontColor = Pal.copperAmmoFront;
@@ -77,7 +80,7 @@ public class PierceTurret{
                     lightColor = Color.valueOf("fff8e8");
                     hitEffect = despawnEffect = Fx.hitBulletColor;
                 }},
-                Items.scrap, new BasicBulletType(12f, 18f){{
+                Items.scrap, new BasicBulletType(12f, 42f){{
                     width = 5.5f;
                     height = 11f;
                     lifetime = 50f;
@@ -87,7 +90,7 @@ public class PierceTurret{
                     pierceCap = 5;
                     pierceBuilding = false;
                     pierceArmor = true;
-                    pierceDamageFactor = 0.9f;
+                    pierceDamageFactor = 0.92f;
                     trailLength = 9;
                     trailWidth = 1.2f;
                     frontColor = Color.valueOf("e0b28d");
@@ -99,7 +102,7 @@ public class PierceTurret{
                         statusDuration = 180f;
                     }
                 }},
-                Items.graphite, new BasicBulletType(9.5f, 42f){{
+                Items.graphite, new BasicBulletType(9.5f, 88f){{
                     width = 7.5f;
                     height = 14f;
                     lifetime = 62f;
@@ -108,7 +111,8 @@ public class PierceTurret{
                     pierce = true;
                     pierceCap = 5;
                     pierceBuilding = false;
-                    pierceDamageFactor = 0.9f;
+                    pierceArmor = true;
+                    pierceDamageFactor = 0.92f;
                     trailLength = 11;
                     trailWidth = 1.8f;
                     frontColor = Color.valueOf("95abd9");
@@ -116,7 +120,7 @@ public class PierceTurret{
                     lightColor = Color.valueOf("95abd9");
                     hitEffect = despawnEffect = Fx.hitBulletColor;
                 }},
-                Items.silicon, new BasicBulletType(11.5f, 30f){{
+                Items.silicon, new BasicBulletType(11.5f, 64f){{
                     width = 6f;
                     height = 12f;
                     lifetime = 52f;
@@ -127,7 +131,7 @@ public class PierceTurret{
                     pierce = true;
                     pierceCap = 4;
                     pierceBuilding = false;
-                    pierceDamageFactor = 0.85f;
+                    pierceDamageFactor = 0.9f;
                     trailLength = 10;
                     trailWidth = 1.4f;
                     frontColor = Color.valueOf("8e9097");
@@ -135,7 +139,7 @@ public class PierceTurret{
                     lightColor = Color.valueOf("8e9097");
                     hitEffect = despawnEffect = Fx.hitBulletColor;
                 }},
-                Items.pyratite, new BasicBulletType(10.5f, 30f){{
+                Items.pyratite, new BasicBulletType(10.5f, 68f){{
                     width = 6f;
                     height = 13f;
                     lifetime = 56f;
@@ -144,12 +148,12 @@ public class PierceTurret{
                     makeFire = true;
                     status = StatusEffects.burning;
                     statusDuration = 300f;
-                    splashDamage = 14f;
-                    splashDamageRadius = 10f;
+                    splashDamage = 24f;
+                    splashDamageRadius = 12f;
                     pierce = true;
                     pierceCap = 4;
                     pierceBuilding = false;
-                    pierceDamageFactor = 0.85f;
+                    pierceDamageFactor = 0.9f;
                     trailLength = 11;
                     trailWidth = 1.4f;
                     frontColor = Color.valueOf("ffaa5f");
@@ -169,4 +173,4 @@ public class PierceTurret{
             new TechNode(duoNode, pierce, pierce.researchRequirements());
         }
     }
-                                                               }
+                                                           }
