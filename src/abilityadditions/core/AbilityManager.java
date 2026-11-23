@@ -95,6 +95,10 @@ public class AbilityManager{
     }
 
     public void initEvents(){
+        // Re-apply after the game has finished initialising content (bundle text can overwrite
+        // descriptions that were set earlier during loadContent). Safe to call repeatedly.
+        refreshDescriptions();
+
         if(eventsInitialized) return;
         eventsInitialized = true;
 
@@ -202,7 +206,38 @@ public class AbilityManager{
         };
     }
 
+    private static final String DESC_MARKER = "​"; // invisible marker so we never append twice
+
+    /** Appends the ability text to the block's description so it shows in the research tree tooltip. */
+    private static void applyDescription(Block block, AbilityProfile profile){
+        if(block == null || profile == null || profile.abilityName == null) return;
+
+        String base = block.description == null ? "" : block.description;
+        if(base.contains(DESC_MARKER)) return;
+
+        StringBuilder sb = new StringBuilder(base);
+        if(!base.isEmpty()) sb.append("\n\n");
+        sb.append(DESC_MARKER);
+        sb.append("[accent]").append(profile.abilityName).append("[]");
+        if(profile.trigger != null){
+            sb.append(" [lightgray](").append(formatTriggerBadge(profile)).append(")[]");
+        }
+        if(profile.description != null && !profile.description.isEmpty()){
+            sb.append("\n[white]").append(profile.description).append("[]");
+        }
+        block.description = sb.toString();
+        block.inlineDescription = true;
+    }
+
+    private static void refreshDescriptions(){
+        for(ObjectMap.Entry<Block, AbilityProfile> entry : profiles){
+            applyDescription(entry.key, entry.value);
+        }
+    }
+
     private static void addStatsAndBars(Block block, AbilityProfile profile){
+        applyDescription(block, profile);
+
         block.stats.add(abilityStat, table -> {
             table.left();
             table.table(t -> {
@@ -2160,4 +2195,4 @@ public class AbilityManager{
         int ownerId;
         int lastSeenTick;
     }
-}
+            }
