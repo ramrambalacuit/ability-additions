@@ -413,15 +413,15 @@ public class TestDummyContent{
             table.table(Styles.black6, t -> {
                 t.defaults().width(175f).height(42f).pad(3f);
 
-                t.button(() -> autoTarget ? "Target: Auto" : "Target: Manual", Styles.togglet, () -> {
+                t.button(b -> b.label(() -> autoTarget ? "Target: Auto" : "Target: Manual"), Styles.togglet, () -> {
                     int next = packConfig() ^ 1;
                     configure(next);
-                }).checked(b -> autoTarget).row();
+                }).update(b -> b.setChecked(autoTarget)).row();
 
-                t.button(() -> airMode ? "Type: Air" : "Type: Ground", Styles.togglet, () -> {
+                t.button(b -> b.label(() -> airMode ? "Type: Air" : "Type: Ground"), Styles.togglet, () -> {
                     int next = packConfig() ^ 2;
                     configure(next);
-                }).checked(b -> airMode).row();
+                }).update(b -> b.setChecked(airMode)).row();
 
                 t.button("Reset Stats & Pos", Icon.refresh, Styles.cleart, () -> {
                     configure(-1);
@@ -465,4 +465,4 @@ public class TestDummyContent{
             this.amount = amount;
         }
     }
-                      }
+                        } 
