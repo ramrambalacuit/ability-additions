@@ -474,7 +474,6 @@ public class AbilityManager{
         TurretBuild tb = build instanceof TurretBuild ? (TurretBuild)build : null;
         Turret turret = tb != null && tb.block instanceof Turret ? (Turret)tb.block : null;
 
-        // 1. Meltdown lockdown (cuts off firing, ammo/power/liquid intake, spews smoke)
         if(state.cooldownTimer > 0f){
             state.cooldownTimer = Math.max(0f, state.cooldownTimer - Time.delta);
             if(profile.meltdownDuration > 0f){
@@ -499,7 +498,6 @@ public class AbilityManager{
             build.enabled = true;
         }
 
-        // 2. Charging phase (Spectre 3s orb, Meltdown 7s Royal Blue/Cyan orb)
         if(state.chargeTimer > 0f && tb != null && turret != null){
             tb.reloadCounter = 0f;
             if(!profile.canTurnWhileCharging){
@@ -535,12 +533,10 @@ public class AbilityManager{
             return;
         }
 
-        // 3. Active duration updates
         if(state.activeTimer > 0f){
             state.activeTimer = Math.max(0f, state.activeTimer - Time.delta);
 
             if(profile.id == AbilityId.MELTDOWN_GRANITE_BLAST && tb != null && turret != null){
-                // Suppress LaserTurret's normal orange beam & lock rotation 100%
                 tb.reloadCounter = 0f;
                 tb.rotation = state.lockedRotation;
                 tb.target = null;
@@ -571,13 +567,11 @@ public class AbilityManager{
             }
         }
 
-        // 4. Pierce RDR2 Dead Eye rapid-fire burst
         if(profile.id == AbilityId.PIERCE_DEAD_EYE && tb != null && turret != null && state.deadEyeRemaining > 0){
             updatePierceDeadEye(tb, turret, profile, state);
             return;
         }
 
-        // 5. General TurretBuild triggers
         if(tb != null && turret != null){
             if(tb.totalShots > state.lastTotalShots){
                 state.lastTotalShots = tb.totalShots;
@@ -634,7 +628,6 @@ public class AbilityManager{
             }
         }
 
-        // 6. Parallax tractor lock
         if(profile.id == AbilityId.PARALLAX_GRAVITY_SLAM && build instanceof TractorBeamBuild && state.activeTimer <= 0f){
             TractorBeamBuild tbb = (TractorBeamBuild)build;
             if(tbb.target != null && !tbb.target.dead && build.efficiency > 0.05f){
@@ -1307,7 +1300,6 @@ public class AbilityManager{
         AbilityProfile profile = bulletOwners.get(bullet.id);
         if(profile == null) return;
 
-        // Pierce Dead Eye (5 confirmed unit hits -> 5 random targets hypershot)
         if(profile.id == AbilityId.PIERCE_DEAD_EYE && bullet.owner instanceof TurretBuild){
             TurretBuild tb = (TurretBuild)bullet.owner;
             AbilityState state = states.get(tb.id);
@@ -1324,7 +1316,6 @@ public class AbilityManager{
             return;
         }
 
-        // Foreshadow Apex Execution
         if(profile.id == AbilityId.FORESHADOW_APEX_EXECUTION && bullet.owner instanceof TurretBuild){
             TurretBuild tb = (TurretBuild)bullet.owner;
             AbilityState state = states.get(tb.id);
@@ -1348,7 +1339,6 @@ public class AbilityManager{
             return;
         }
 
-        // Cyclone Gale Ricochet
         if(profile.id == AbilityId.CYCLONE_GALE_RICOCHET && galeBullets.contains(bullet.id)){
             galeBullets.remove(bullet.id);
             runCycloneRicochet(bullet.team, unit, bullet, profile);
@@ -1358,7 +1348,6 @@ public class AbilityManager{
         if(!activeEmpoweredBullets.contains(bullet.id)) return;
         Color col = getBulletColor(bullet, profile);
 
-        // Lancer Arc Paralysis
         if(profile.id == AbilityId.LANCER_ARC_PARALYSIS && bullet.owner instanceof TurretBuild){
             paralyzeUnit((TurretBuild)bullet.owner, unit, col);
             return;
@@ -1743,7 +1732,6 @@ public class AbilityManager{
     }
 
     private static void drawVisuals(){
-        // 1. Darken rotating turret sprite ONLY (never base/bottom) during Meltdown
         Draw.z(Layer.turret + 0.05f);
         for(Team team : Team.all){
             for(Building build : team.data().buildings){
@@ -1764,7 +1752,6 @@ public class AbilityManager{
 
         Draw.z(Layer.effect);
 
-        // 2. Swarmer Hunter's Mark (corner brackets + rotating diamond)
         for(int i = 0; i < markedUnits.size; i++){
             MarkedUnit mu = markedUnits.get(i);
             if(mu.unit == null || mu.unit.dead) continue;
@@ -1781,7 +1768,6 @@ public class AbilityManager{
             }
         }
 
-        // 3. Tsunami Rolling Tidal Waves
         for(int i = 0; i < tidalWaves.size; i++){
             TidalWave w = tidalWaves.get(i);
             float alpha = Mathf.clamp(w.timer / (w.duration * 0.25f), 0.15f, 0.85f);
@@ -1795,7 +1781,6 @@ public class AbilityManager{
             Lines.arc(w.x - Angles.trnsx(w.angle, 15f), w.y - Angles.trnsy(w.angle, 15f), w.width * 0.52f, 0.34f, w.angle - 61f);
         }
 
-        // 4. Turret-specific active visuals
         for(Team team : Team.all){
             for(Building build : team.data().buildings){
                 AbilityProfile profile = profiles.get(build.block);
@@ -1803,7 +1788,6 @@ public class AbilityManager{
                 AbilityState state = states.get(build.id);
                 if(state == null) continue;
 
-                // Charging orbs (Spectre / Meltdown JJK Royal Blue-Cyan)
                 if(state.chargeTimer > 0f && build instanceof TurretBuild){
                     TurretBuild tb = (TurretBuild)build;
                     Turret turret = (Turret)tb.block;
@@ -1826,7 +1810,6 @@ public class AbilityManager{
                     Lines.circle(mx, my, r + 6f * (1f - frac));
                 }
 
-                // Meltdown Royal Blue / Cyan Granite Blast Beam
                 if(profile.id == AbilityId.MELTDOWN_GRANITE_BLAST && state.activeTimer > 0f && build instanceof TurretBuild){
                     TurretBuild tb = (TurretBuild)build;
                     Turret turret = (Turret)tb.block;
@@ -1855,7 +1838,6 @@ public class AbilityManager{
                     Draw.color();
                 }
 
-                // Parallax tether beams
                 if(profile.id == AbilityId.PARALLAX_GRAVITY_SLAM && state.activeTimer > 0f && state.tetherMain != null && !state.tetherMain.dead){
                     Draw.color(profile.accentColor, Color.white, 0.3f);
                     Lines.stroke(2.2f);
@@ -1868,7 +1850,6 @@ public class AbilityManager{
                     Lines.circle(state.tetherMain.x, state.tetherMain.y, state.tetherMain.hitSize + 6f);
                 }
 
-                // Foreshadow Apex Sniper Reticle + Sight Line
                 if(profile.id == AbilityId.FORESHADOW_APEX_EXECUTION && state.apexTarget != null && !state.apexTarget.dead && build instanceof TurretBuild){
                     TurretBuild tb = (TurretBuild)build;
                     Unit tgt = state.apexTarget;
@@ -1893,7 +1874,6 @@ public class AbilityManager{
                     Draw.color();
                 }
 
-                // Pierce RDR2 Dead Eye X Marks
                 if(profile.id == AbilityId.PIERCE_DEAD_EYE && state.deadEyeTargets.size > 0 && build instanceof TurretBuild){
                     Color col = getTurretAccentColor((TurretBuild)build, profile);
                     for(int i = 0; i < state.deadEyeTargets.size; i++){
@@ -1961,11 +1941,14 @@ public class AbilityManager{
         if(type.trailColor != null && !type.trailColor.equals(Color.white) && !type.trailColor.equals(Pal.powerLight) && type.trailColor.a > 0.1f){
             return type.trailColor;
         }
-        if(type.backColor != null && !type.backColor.equals(Color.white) && !type.backColor.equals(Pal.powerLight) && type.backColor.a > 0.1f){
-            return type.backColor;
-        }
-        if(type.frontColor != null && !type.frontColor.equals(Color.white) && !type.frontColor.equals(Pal.powerLight) && type.frontColor.a > 0.1f){
-            return type.frontColor;
+        if(type instanceof BasicBulletType){
+            BasicBulletType bbt = (BasicBulletType)type;
+            if(bbt.backColor != null && !bbt.backColor.equals(Color.white) && !bbt.backColor.equals(Pal.powerLight) && bbt.backColor.a > 0.1f){
+                return bbt.backColor;
+            }
+            if(bbt.frontColor != null && !bbt.frontColor.equals(Color.white) && !bbt.frontColor.equals(Pal.powerLight) && bbt.frontColor.a > 0.1f){
+                return bbt.frontColor;
+            }
         }
         if(type.hitColor != null && !type.hitColor.equals(Color.white) && !type.hitColor.equals(Pal.powerLight) && type.hitColor.a > 0.1f){
             return type.hitColor;
@@ -2091,4 +2074,4 @@ public class AbilityManager{
         int ownerId;
         int lastSeenTick;
     }
-           }
+                   }
