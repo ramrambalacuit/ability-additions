@@ -55,6 +55,7 @@ public class AbilityManager{
     private static final IntMap<TrackedEnemyBullet> trackedEnemyBullets = new IntMap<>();
     private static final ObjectMap<String, BulletType> snakeMissileCache = new ObjectMap<>();
 
+    private static ContinuousFlameBulletType graniteBlastType;
     private static boolean statsApplied = false;
     private static boolean eventsInitialized = false;
     private static Stat abilityStat;
@@ -101,6 +102,35 @@ public class AbilityManager{
         Events.on(UnitDamageEvent.class, e -> onUnitDamaged(e.unit, e.bullet));
         Events.on(BuildDamageEvent.class, e -> onBuildDamaged(e.build, e.source));
         Events.on(ResetEvent.class, e -> clearAllRuntime());
+    }
+
+    private static ContinuousFlameBulletType getGraniteBlastType(AbilityProfile profile){
+        if(graniteBlastType != null) return graniteBlastType;
+        graniteBlastType = new ContinuousFlameBulletType(135f * profile.damageMultiplier){{
+            length = 620f;
+            width = 24f;
+            drawSize = 700f;
+            lifetime = profile.activeDuration * 60f + 10f;
+            pierceArmor = true;
+            laserAbsorb = true;
+            status = StatusEffects.melting;
+            statusDuration = 240f;
+            hitColor = flareColor = AbilityEffects.graniteCyan;
+            flareWidth = 10f;
+            flareLength = 54f;
+            flareRotSpeed = 0.4f;
+            colors = new Color[]{
+                AbilityEffects.graniteBlue.cpy().a(0.50f),
+                AbilityEffects.graniteBlue.cpy().a(0.75f),
+                Color.valueOf("7fd2ff").a(0.92f),
+                AbilityEffects.graniteCyan,
+                AbilityEffects.graniteCore
+            };
+        }};
+        if(!Vars.headless){
+            graniteBlastType.load();
+        }
+        return graniteBlastType;
     }
 
     private static void resolveStatuses(AbilityProfile profile){
@@ -235,10 +265,16 @@ public class AbilityManager{
         return sb.toString();
     }
 
+    private static boolean hasMeltdown(AbilityProfile profile){
+        return profile.meltdownDuration > 0f
+            && profile.id != AbilityId.SCATTER_SNAKE_SWARM
+            && profile.id != AbilityId.SPECTRE_SINGULARITY_ORB;
+    }
+
     private static boolean shouldHideBarBox(Building entity, AbilityProfile profile){
         if(profile.trigger.type != TriggerType.CHANCE_PER_CYCLE) return false;
         AbilityState state = states.get(entity.id);
-        return state == null || (state.activeTimer <= 0f && state.cooldownTimer <= 0f);
+        return state == null || (state.activeTimer <= 0f && (!hasMeltdown(profile) || state.cooldownTimer <= 0f));
     }
 
     private static String getBarText(Building entity, AbilityProfile profile){
@@ -250,7 +286,7 @@ public class AbilityManager{
             return profile.abilityName;
         }
 
-        if(state.cooldownTimer > 0f && profile.meltdownDuration > 0f){
+        if(state.cooldownTimer > 0f && hasMeltdown(profile)){
             return "Meltdown " + Strings.fixed(state.cooldownTimer / 60f, 1) + "s";
         }
         if(state.chargeTimer > 0f){
@@ -265,8 +301,8 @@ public class AbilityManager{
                 if(state.activeTimer > 0f){
                     return profile.abilityName + " " + Strings.fixed(state.activeTimer / 60f, 1) + "s";
                 }
-                if(state.empoweredShots > 0){
-                    return profile.abilityName + " READY!";
+                if(state.empoweredShots > 0 || state.shotCounter >= profile.trigger.everyNShots){
+                    return profile.abilityName + " " + profile.trigger.everyNShots + "/" + profile.trigger.everyNShots + "!";
                 }
                 return "Charge: " + state.shotCounter + "/" + profile.trigger.everyNShots;
 
@@ -299,7 +335,7 @@ public class AbilityManager{
 
             case CONFIRMED_UNIT_HITS:
                 if(state.shotCounter >= profile.trigger.everyNShots){
-                    return profile.abilityName + " READY!";
+                    return profile.abilityName + " " + profile.trigger.everyNShots + "/" + profile.trigger.everyNShots + "!";
                 }
                 return "Hits: " + state.shotCounter + "/" + profile.trigger.everyNShots;
 
@@ -328,7 +364,7 @@ public class AbilityManager{
         AbilityState state = states.get(entity.id);
         if(state == null) return profile.accentColor;
 
-        if(state.cooldownTimer > 0f && profile.meltdownDuration > 0f) return Color.scarlet;
+        if(state.cooldownTimer > 0f && hasMeltdown(profile)) return Color.scarlet;
         if(state.chargeTimer > 0f){
             return profile.id == AbilityId.MELTDOWN_GRANITE_BLAST ? AbilityEffects.graniteCyan : Color.white;
         }
@@ -347,7 +383,7 @@ public class AbilityManager{
         AbilityState state = states.get(entity.id);
         if(state == null) return 0f;
 
-        if(state.cooldownTimer > 0f && profile.meltdownDuration > 0f){
+        if(state.cooldownTimer > 0f && hasMeltdown(profile)){
             return Mathf.clamp(state.cooldownTimer / (profile.meltdownDuration * 60f));
         }
         if(state.chargeTimer > 0f && profile.chargeDuration > 0f){
@@ -474,21 +510,20 @@ public class AbilityManager{
         TurretBuild tb = build instanceof TurretBuild ? (TurretBuild)build : null;
         Turret turret = tb != null && tb.block instanceof Turret ? (Turret)tb.block : null;
 
-        if(state.cooldownTimer > 0f){
+        // 1. Meltdown lockdown (only Scorch and Meltdown!)
+        if(state.cooldownTimer > 0f && hasMeltdown(profile)){
             state.cooldownTimer = Math.max(0f, state.cooldownTimer - Time.delta);
-            if(profile.meltdownDuration > 0f){
-                state.lockedByAbility = true;
-                build.enabled = false;
-                build.efficiency = 0f;
-                if(tb != null) tb.reloadCounter = 0f;
-                if(Mathf.chanceDelta(0.28f)){
-                    AbilityEffects.meltdownSmoke.at(
-                        build.x + Mathf.range(build.block.size * 3.2f),
-                        build.y + Mathf.range(build.block.size * 3.2f)
-                    );
-                }
+            state.lockedByAbility = true;
+            build.enabled = false;
+            build.efficiency = 0f;
+            if(tb != null) tb.reloadCounter = 0f;
+            if(Mathf.chanceDelta(0.28f)){
+                AbilityEffects.meltdownSmoke.at(
+                    build.x + Mathf.range(build.block.size * 3.2f),
+                    build.y + Mathf.range(build.block.size * 3.2f)
+                );
             }
-            if(state.cooldownTimer <= 0f && state.lockedByAbility){
+            if(state.cooldownTimer <= 0f){
                 state.lockedByAbility = false;
                 build.enabled = true;
             }
@@ -498,11 +533,10 @@ public class AbilityManager{
             build.enabled = true;
         }
 
+        // 2. Charging phase (Spectre 3s orb, Meltdown 7s Royal Blue/Cyan orb)
         if(state.chargeTimer > 0f && tb != null && turret != null){
             tb.reloadCounter = 0f;
-            if(!profile.canTurnWhileCharging){
-                tb.rotation = state.lockedRotation;
-            }
+            tb.rotation = state.lockedRotation;
             state.chargeTimer = Math.max(0f, state.chargeTimer - Time.delta);
 
             Color orbCol = profile.id == AbilityId.MELTDOWN_GRANITE_BLAST ? AbilityEffects.graniteCyan : getTurretAccentColor(tb, profile);
@@ -528,11 +562,20 @@ public class AbilityManager{
                         tb.x + Angles.trnsx(state.lockedRotation, 240f),
                         tb.y + Angles.trnsy(state.lockedRotation, 240f)
                     );
+                    Bullet gb = getGraniteBlastType(profile).create(tb, tb.team, muzzleX, muzzleY, state.lockedRotation);
+                    state.graniteBullet = gb;
+                    if(gb != null){
+                        processedBullets.add(gb.id);
+                        activeEmpoweredBullets.add(gb.id);
+                        bulletOwners.put(gb.id, profile);
+                    }
+                    Sounds.beamMeltdown.at(muzzleX, muzzleY, 0.9f);
                 }
             }
             return;
         }
 
+        // 3. Active duration updates
         if(state.activeTimer > 0f){
             state.activeTimer = Math.max(0f, state.activeTimer - Time.delta);
 
@@ -544,7 +587,19 @@ public class AbilityManager{
                     tb.x + Angles.trnsx(state.lockedRotation, 240f),
                     tb.y + Angles.trnsy(state.lockedRotation, 240f)
                 );
-                updateGraniteBlastDamage(tb, turret, profile, state);
+                if(state.graniteBullet != null && state.graniteBullet.isAdded()){
+                    float mx = tb.x + Angles.trnsx(state.lockedRotation, turret.shootY);
+                    float my = tb.y + Angles.trnsy(state.lockedRotation, turret.shootY);
+                    state.graniteBullet.set(mx, my);
+                    state.graniteBullet.rotation(state.lockedRotation);
+                    if(Mathf.chanceDelta(0.35f)){
+                        AbilityEffects.activeTurretSpark.at(mx, my, AbilityEffects.graniteCyan);
+                    }
+                }
+                if(state.activeTimer <= 0f && state.graniteBullet != null){
+                    if(state.graniteBullet.isAdded()) state.graniteBullet.remove();
+                    state.graniteBullet = null;
+                }
             }else if(profile.id == AbilityId.PARALLAX_GRAVITY_SLAM){
                 updateParallaxActive(build, profile, state);
             }else if(profile.id == AbilityId.SEGMENT_AEGIS_PRISM){
@@ -559,7 +614,7 @@ public class AbilityManager{
                 );
             }
 
-            if(state.activeTimer <= 0f && profile.meltdownDuration > 0f){
+            if(state.activeTimer <= 0f && hasMeltdown(profile)){
                 state.cooldownTimer = profile.meltdownDuration * 60f;
                 state.lockedByAbility = true;
                 build.enabled = false;
@@ -567,22 +622,25 @@ public class AbilityManager{
             }
         }
 
+        // 4. Pierce RDR2 Dead Eye rapid-fire burst
         if(profile.id == AbilityId.PIERCE_DEAD_EYE && tb != null && turret != null && state.deadEyeRemaining > 0){
             updatePierceDeadEye(tb, turret, profile, state);
             return;
         }
 
+        // 5. General TurretBuild triggers
         if(tb != null && turret != null){
             if(tb.totalShots > state.lastTotalShots){
                 state.lastTotalShots = tb.totalShots;
                 onTurretTriggerPull(tb, turret, profile, state);
             }
 
+            // Spectre (35/35) and Meltdown (7/7) only start charging AFTER bar hits FULL!
             if((profile.id == AbilityId.SPECTRE_SINGULARITY_ORB || profile.id == AbilityId.MELTDOWN_GRANITE_BLAST)
-                && state.shotCounter >= profile.trigger.everyNShots - 1
+                && state.shotCounter >= profile.trigger.everyNShots
                 && state.empoweredShots <= 0 && state.activeTimer <= 0f
                 && tb.isShooting() && tb.hasAmmo() && tb.efficiency > 0.05f
-                && tb.reloadCounter >= turret.reload * 0.92f){
+                && tb.reloadCounter >= turret.reload * 0.85f){
                 state.shotCounter = 0;
                 state.chargeTimer = profile.chargeDuration * 60f;
                 state.lockedRotation = tb.rotation;
@@ -628,6 +686,7 @@ public class AbilityManager{
             }
         }
 
+        // 6. Parallax tractor lock
         if(profile.id == AbilityId.PARALLAX_GRAVITY_SLAM && build instanceof TractorBeamBuild && state.activeTimer <= 0f){
             TractorBeamBuild tbb = (TractorBeamBuild)build;
             if(tbb.target != null && !tbb.target.dead && build.efficiency > 0.05f){
@@ -640,28 +699,6 @@ public class AbilityManager{
                 state.heatTimer = Math.max(0f, state.heatTimer - Time.delta * 0.6f);
             }
         }
-    }
-
-    private static void updateGraniteBlastDamage(TurretBuild tb, Turret turret, AbilityProfile profile, AbilityState state){
-        if(tickCounter % 4 != 0) return;
-        float len = 620f;
-        float mx = tb.x + Angles.trnsx(state.lockedRotation, turret.shootY);
-        float my = tb.y + Angles.trnsy(state.lockedRotation, turret.shootY);
-        float endX = mx + Angles.trnsx(state.lockedRotation, len);
-        float endY = my + Angles.trnsy(state.lockedRotation, len);
-        float beamDmg = 135f * profile.damageMultiplier * 0.45f;
-
-        Units.nearbyEnemies(tb.team, (mx + endX) * 0.5f, (my + endY) * 0.5f, len * 0.55f, u -> {
-            if(!u.dead && Intersector.distanceSegmentPoint(mx, my, endX, endY, u.x, u.y) <= u.hitSize + 20f){
-                u.damagePierce(beamDmg);
-                u.apply(StatusEffects.melting, 240f);
-                if(profile.resolvedPrimaryStatus != null){
-                    u.apply(profile.resolvedPrimaryStatus, profile.primaryStatusDuration * 60f);
-                }
-                AbilityEffects.activeTurretSpark.at(u.x, u.y, AbilityEffects.graniteCyan);
-            }
-        });
-        Damage.damage(tb.team, endX, endY, 22f, beamDmg * 0.35f, true, false);
     }
 
     private static void startPierceDeadEye(TurretBuild tb, Turret turret, AbilityProfile profile, AbilityState state){
@@ -688,12 +725,16 @@ public class AbilityManager{
         if(!tb.hasAmmo() || state.deadEyeTargets.size == 0){
             state.deadEyeRemaining = 0;
             state.deadEyeTargets.clear();
+            state.shotCounter = 0;
             return;
         }
 
         Unit target = state.deadEyeTargets.remove(0);
         state.deadEyeRemaining = state.deadEyeTargets.size;
         state.deadEyeFireTimer = profile.deadEyeInterval;
+        if(state.deadEyeRemaining == 0){
+            state.shotCounter = 0;
+        }
 
         if(target == null || target.dead){
             target = Units.closestEnemy(tb.team, tb.x, tb.y, turret.range, u -> !u.dead);
@@ -709,7 +750,7 @@ public class AbilityManager{
         float my = tb.y + Angles.trnsy(ang, turret.shootY);
         Color col = getAmmoColor(ammo, profile.accentColor);
 
-        Bullet hyper = ammo.create(tb, tb.team, mx, my, ang, ammo.damage * 1.15f, 3.6f, 0.35f, null);
+        Bullet hyper = ammo.create(tb, tb.team, mx, my, ang, ammo.damage * profile.damageMultiplier, 3.8f, 0.35f, null);
         if(hyper != null){
             processedBullets.add(hyper.id);
             bulletOwners.put(hyper.id, profile);
@@ -721,18 +762,21 @@ public class AbilityManager{
     private static void onTurretTriggerPull(TurretBuild tb, Turret turret, AbilityProfile profile, AbilityState state){
         if(profile.trigger.type == TriggerType.EVERY_N_SHOTS){
             if(profile.id == AbilityId.SPECTRE_SINGULARITY_ORB || profile.id == AbilityId.MELTDOWN_GRANITE_BLAST){
-                if(state.empoweredShots > 0 || state.activeTimer > 0f) return;
-                state.shotCounter++;
+                if(state.empoweredShots > 0 || state.activeTimer > 0f || state.chargeTimer > 0f) return;
+                if(state.shotCounter < profile.trigger.everyNShots){
+                    state.shotCounter++;
+                }
                 return;
             }
             if(state.activeTimer > 0f) return;
             state.shotCounter++;
             if(state.shotCounter >= profile.trigger.everyNShots){
-                state.shotCounter = 0;
                 if(profile.activeDuration > 0f){
+                    state.shotCounter = 0;
                     state.activeTimer = profile.activeDuration * 60f;
                     AbilityEffects.overdriveTrigger.at(tb.x, tb.y, getTurretAccentColor(tb, profile));
                 }else{
+                    state.shotCounter = profile.trigger.everyNShots;
                     state.empoweredShots = 1;
                 }
             }
@@ -1146,6 +1190,13 @@ public class AbilityManager{
         AbilityState state = states.get(tb.id);
         if(state == null) return;
 
+        // Suppress any normal orange LaserTurret beam while Meltdown is charging/blasting/melting down
+        if(profile.id == AbilityId.MELTDOWN_GRANITE_BLAST && b != state.graniteBullet
+            && (state.chargeTimer > 0f || state.activeTimer > 0f || state.cooldownTimer > 0f)){
+            b.remove();
+            return;
+        }
+
         bulletOwners.put(b.id, profile);
         long shotKey = (((long)tb.id) << 32) | (tb.totalShots & 0xFFFFFFFFL);
         bulletShotKeys.put(b.id, shotKey);
@@ -1235,6 +1286,9 @@ public class AbilityManager{
             if(state.empoweredShots > 0 && tb.totalShots != state.lastEmpoweredConsumedShot){
                 state.empoweredShots--;
                 state.lastEmpoweredConsumedShot = tb.totalShots;
+                if(state.empoweredShots <= 0 && profile.trigger.type == TriggerType.EVERY_N_SHOTS){
+                    state.shotCounter = 0;
+                }
             }
             if(state.empoweredShotIndex == tb.totalShots){
                 state.empoweredShotIndex = -1;
@@ -1249,9 +1303,6 @@ public class AbilityManager{
 
         if(profile.id == AbilityId.SPECTRE_SINGULARITY_ORB){
             b.damage *= profile.damageMultiplier;
-            state.cooldownTimer = profile.meltdownDuration * 60f;
-            state.lockedByAbility = true;
-            tb.enabled = false;
             return;
         }
 
@@ -1307,9 +1358,8 @@ public class AbilityManager{
             if(state != null && key != null && state.deadEyeRemaining <= 0 && !countedUnitHitShots.contains(key)){
                 if(countedUnitHitShots.size > 200) countedUnitHitShots.clear();
                 countedUnitHitShots.add(key);
-                state.shotCounter++;
+                state.shotCounter = Math.min(profile.trigger.everyNShots, state.shotCounter + 1);
                 if(state.shotCounter >= profile.trigger.everyNShots){
-                    state.shotCounter = 0;
                     startPierceDeadEye(tb, (Turret)tb.block, profile, state);
                 }
             }
@@ -1347,6 +1397,13 @@ public class AbilityManager{
 
         if(!activeEmpoweredBullets.contains(bullet.id)) return;
         Color col = getBulletColor(bullet, profile);
+
+        if(profile.id == AbilityId.MELTDOWN_GRANITE_BLAST){
+            if(profile.resolvedPrimaryStatus != null){
+                unit.apply(profile.resolvedPrimaryStatus, profile.primaryStatusDuration * 60f);
+            }
+            return;
+        }
 
         if(profile.id == AbilityId.LANCER_ARC_PARALYSIS && bullet.owner instanceof TurretBuild){
             paralyzeUnit((TurretBuild)bullet.owner, unit, col);
@@ -1736,7 +1793,7 @@ public class AbilityManager{
         for(Team team : Team.all){
             for(Building build : team.data().buildings){
                 AbilityProfile profile = profiles.get(build.block);
-                if(profile == null || profile.meltdownDuration <= 0f) continue;
+                if(profile == null || !hasMeltdown(profile)) continue;
                 AbilityState state = states.get(build.id);
                 if(state != null && state.cooldownTimer > 0f && build instanceof TurretBuild){
                     TextureRegion top = Core.atlas.find(build.block.name);
@@ -1808,34 +1865,6 @@ public class AbilityManager{
                     Lines.stroke(2f);
                     Draw.color(mid);
                     Lines.circle(mx, my, r + 6f * (1f - frac));
-                }
-
-                if(profile.id == AbilityId.MELTDOWN_GRANITE_BLAST && state.activeTimer > 0f && build instanceof TurretBuild){
-                    TurretBuild tb = (TurretBuild)build;
-                    Turret turret = (Turret)tb.block;
-                    float mx = tb.x + Angles.trnsx(state.lockedRotation, turret.shootY);
-                    float my = tb.y + Angles.trnsy(state.lockedRotation, turret.shootY);
-                    float len = 620f;
-                    float endX = mx + Angles.trnsx(state.lockedRotation, len);
-                    float endY = my + Angles.trnsy(state.lockedRotation, len);
-                    float pulse = 1f + Mathf.absin(Time.time, 1.8f, 0.16f);
-
-                    Draw.color(AbilityEffects.graniteBlue);
-                    Draw.alpha(0.75f);
-                    Lines.stroke(26f * pulse);
-                    Lines.line(mx, my, endX, endY);
-                    Fill.circle(mx, my, 15f * pulse);
-
-                    Draw.color(AbilityEffects.graniteCyan);
-                    Lines.stroke(14f * pulse);
-                    Lines.line(mx, my, endX, endY);
-                    Fill.circle(mx, my, 9f * pulse);
-
-                    Draw.color(AbilityEffects.graniteCore);
-                    Lines.stroke(6f * pulse);
-                    Lines.line(mx, my, endX, endY);
-                    Fill.circle(mx, my, 4.5f * pulse);
-                    Draw.color();
                 }
 
                 if(profile.id == AbilityId.PARALLAX_GRAVITY_SLAM && state.activeTimer > 0f && state.tetherMain != null && !state.tetherMain.dead){
@@ -2006,6 +2035,7 @@ public class AbilityManager{
         float stageGraceTimer = 0f;
         float stage3HoldTimer = 0f;
 
+        Bullet graniteBullet = null;
         Unit apexTarget = null;
         Unit tetherMain = null;
         final Seq<Unit> tetherExtras = new Seq<>();
@@ -2074,4 +2104,4 @@ public class AbilityManager{
         int ownerId;
         int lastSeenTick;
     }
-                   }
+    }
