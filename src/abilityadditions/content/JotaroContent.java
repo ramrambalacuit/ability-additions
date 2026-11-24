@@ -218,7 +218,7 @@ public class JotaroContent{
                 outlines = false;
 
                 weapons.add(jotaroFist);
-                abilities.add(
+                abilities.addAll(
                     new LungeDashAbility(),
                     new WeaveDodgeAbility(),
                     new RockThrowAbility(),
