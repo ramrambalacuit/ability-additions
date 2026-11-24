@@ -3,7 +3,9 @@ package abilityadditions.content;
 import abilityadditions.core.*;
 import abilityadditions.core.MeleeType.*;
 import arc.*;
+import arc.assets.loaders.SoundLoader.*;
 import arc.audio.*;
+import arc.files.*;
 import arc.graphics.*;
 import arc.graphics.g2d.*;
 import arc.math.*;
@@ -12,34 +14,43 @@ import arc.scene.ui.layout.*;
 import arc.struct.*;
 import arc.util.*;
 import mindustry.*;
-import mindustry.ai.types.*;
 import mindustry.content.*;
 import mindustry.entities.*;
 import mindustry.entities.abilities.*;
 import mindustry.entities.bullet.*;
 import mindustry.entities.units.*;
-import mindustry.game.*;
 import mindustry.game.EventType.*;
 import mindustry.gen.*;
 import mindustry.graphics.*;
+import mindustry.mod.*;
 import mindustry.type.*;
 import mindustry.ui.*;
-import mindustry.world.meta.*;
 
 public class JotaroContent{
 
     public static UnitType jotaro;
-    public static StatusEffect punchStun;
+    public static StatusEffect punchSlow;
+    public static StatusEffect heavyStun;
     public static StatusEffect sprintBuff;
     public static StatusEffect resolveBuff;
     public static BulletType rockProjectile;
-    public static Sound rockThrowSound = Sounds.none;
+
+    public static Sound punchSound = Sounds.none;
+    public static Sound heavyPunchSound = Sounds.none;
+    public static Sound oraRushSound = Sounds.none;
+    public static Sound dashSound = Sounds.none;
+    public static Sound yareYareSound = Sounds.none;
 
     private static final IntMap<JotaroRuntime> runtimes = new IntMap<>();
     private static boolean eventsHooked = false;
+    private static boolean soundsLoaded = false;
 
     private static final Color JOTARO_PURPLE = Color.valueOf("9c6bff");
     private static final Color JOTARO_GOLD = Color.valueOf("ffcf5c");
+
+    private static final float ORA_DURATION_TICKS = 315f; // 5.25s flurry + finisher right at 5.5s (matches ora-rush.ogg)
+    private static final float ORA_COOLDOWN_TICKS = 600f; // 10.0s cooldown after ORA ends
+    private static final float COMBO_RECOVERY_TICKS = 54f; // 0.90s pause after 4th Heavy hit
 
     private static Effect punchArcEffect;
     private static Effect heavyPunchEffect;
@@ -50,68 +61,61 @@ public class JotaroContent{
 
     public static void load(){
         loadEffectsAndStatuses();
-        rockThrowSound = loadModSound("rock-throw");
         loadRockBullet();
 
         MeleeType normalPunch = new MeleeType(){{
             shape = MeleeShape.ARC;
             reach = 26f;
             arcAngle = 115f;
-            damage = 38f;
-            buildingDamageMultiplier = 0.85f;
+            damage = 42f;
+            buildingDamageMultiplier = 0.9f;
             maxTargets = 5;
             hitGround = true;
             hitAir = false;
-            knockback = 2.2f;
-            lungeSpeed = 0.7f;
-            hitStatus = punchStun;
-            hitStatusDuration = 26f; // ~0.43s disarm + stun
+            knockback = 2.0f;
+            lungeSpeed = 0.6f;
+            hitStatus = punchSlow;
+            hitStatusDuration = 12f; // 0.20s light stagger (does NOT disarm)
             accentColor = JOTARO_PURPLE;
             swingEffect = punchArcEffect;
             hitEffect = Fx.hitBulletColor;
-            swingSound = Sounds.none;
-            hitSound = Sounds.none;
         }};
 
         MeleeType heavyFinisher = new MeleeType(){{
             shape = MeleeShape.ARC;
             reach = 32f;
             arcAngle = 145f;
-            damage = 74f;
-            buildingDamageMultiplier = 1.15f;
+            damage = 88f;
+            buildingDamageMultiplier = 1.25f;
             pierceArmor = true;
             maxTargets = 7;
             hitGround = true;
             hitAir = false;
-            knockback = 6.8f;
-            lungeSpeed = 1.6f;
+            knockback = 7.2f;
+            lungeSpeed = 1.5f;
             shake = 1.6f;
-            hitStatus = punchStun;
-            hitStatusDuration = 48f; // 0.8s disarm + stun
+            hitStatus = heavyStun;
+            hitStatusDuration = 30f; // 0.50s disarm stun (gives enemies fair fighting window!)
             accentColor = JOTARO_GOLD;
             swingEffect = heavyPunchEffect;
             hitEffect = Fx.flakExplosion;
-            swingSound = Sounds.none;
-            hitSound = Sounds.none;
         }};
 
         MeleeType oraFlurryPunch = new MeleeType(){{
             shape = MeleeShape.ARC;
             reach = 30f;
-            arcAngle = 120f;
-            damage = 28f;
+            arcAngle = 125f;
+            damage = 16f;
             buildingDamageMultiplier = 0.9f;
             maxTargets = 5;
             hitGround = true;
             hitAir = false;
-            knockback = 1.1f;
-            hitStatus = punchStun;
-            hitStatusDuration = 20f;
+            knockback = 0.85f;
+            hitStatus = punchSlow;
+            hitStatusDuration = 10f; // stagger only during flurry so enemies can still fire back
             accentColor = JOTARO_PURPLE;
             swingEffect = oraFistEffect;
             hitEffect = Fx.hitBulletColor;
-            swingSound = Sounds.none;
-            hitSound = Sounds.none;
         }};
 
         MeleeWeapon jotaroFist = new MeleeWeapon("", normalPunch){{
@@ -119,7 +123,7 @@ public class JotaroContent{
             y = 1.5f;
             shootX = 0f;
             shootY = 5f;
-            reload = 18f;
+            reload = 33f; // Mirrored + alternate = 0.55s per punch
             mirror = true;
             alternate = true;
             rotate = false;
@@ -129,19 +133,28 @@ public class JotaroContent{
 
             strikeHandler = (unit, mount, ox, oy, angle, weapon) -> {
                 JotaroRuntime rt = getRuntime(unit);
-                rt.comboIdleTimer = 110f;
+
+                // Block M1s during ORA Rush or during post-Heavy combo recovery
+                if(rt.oraActive || rt.comboRecoveryTimer > 0f){
+                    return;
+                }
+
+                rt.comboIdleTimer = 70f;
                 rt.comboStep = (rt.comboStep + 1) % 4;
 
                 int hits;
                 if(rt.comboStep == 0){
-                    // 4th strike: Heavy Finisher!
+                    // 4th hit: Heavy Finisher + 0.90s recovery pause
                     hits = heavyFinisher.execute(unit, ox, oy, angle);
+                    playSound(heavyPunchSound, ox, oy, 1f, 0.9f);
+                    rt.comboRecoveryTimer = COMBO_RECOVERY_TICKS;
                 }else{
-                    // 1st-3rd strikes: Normal M1
+                    // Hits 1-3: Normal M1
                     hits = normalPunch.execute(unit, ox, oy, angle);
+                    playSound(punchSound, ox, oy, Mathf.random(0.95f, 1.05f), 0.72f);
                 }
 
-                if(hits > 0 && !rt.oraActive){
+                if(hits > 0 && rt.oraCooldown <= 0f && !rt.oraActive){
                     rt.oraCharge = Math.min(6, rt.oraCharge + 1);
                 }
             };
@@ -149,6 +162,8 @@ public class JotaroContent{
 
         jotaro = new UnitType("jotaro-kujo"){
             {
+                localizedName = "Jotaro Kujo";
+                description = "Melee brawler who sprints and weaves through enemy fire, stuns on heavy combo finishers, and pelts air targets with rocks.";
                 constructor = MechUnit::create;
                 aiController = MeleeCommandAI::new;
                 controller = u -> new MeleeCommandAI();
@@ -158,25 +173,24 @@ public class JotaroContent{
                 rotateSpeed = 6.5f;
                 baseRotateSpeed = 6.5f;
                 hitSize = 11f;
-                health = 950f;
-                armor = 6f;
+                health = 3500f;
+                armor = 10f;
                 drag = 0.35f;
                 accel = 0.55f;
 
-                // Copy Dagger walking sound
                 stepSound = UnitTypes.dagger != null ? UnitTypes.dagger.stepSound : Sounds.mechStepSmall;
                 stepSoundVolume = UnitTypes.dagger != null ? UnitTypes.dagger.stepSoundVolume : 0.5f;
                 stepSoundPitch = UnitTypes.dagger != null ? UnitTypes.dagger.stepSoundPitch : 1f;
                 stepSoundPitchRange = UnitTypes.dagger != null ? UnitTypes.dagger.stepSoundPitchRange : 0.1f;
 
-                // Strictly ground-focused so air units never hijack melee movement
                 targetAir = false;
                 targetGround = true;
+                autoFindTarget = false;
                 faceTarget = true;
                 omniMovement = true;
                 useUnitCap = true;
 
-                // Secret Sandbox unit: Payload Source only (no factory, no tech tree)
+                // Secret Sandbox unit: Payload Source only
                 hidden = false;
                 allowedInPayloads = true;
                 outlines = false;
@@ -192,7 +206,6 @@ public class JotaroContent{
 
             @Override
             public void createIcons(MultiPacker packer){
-                // Skip generating separate icons while reusing Dagger's sprites
             }
 
             @Override
@@ -223,7 +236,6 @@ public class JotaroContent{
             public void update(Unit unit){
                 super.update(unit);
 
-                // Protect against save/load resetting controller back to plain CommandAI
                 if(!(unit.controller() instanceof MeleeCommandAI) && !unit.isPlayer()){
                     UnitController prev = unit.controller();
                     MeleeCommandAI next = new MeleeCommandAI();
@@ -238,6 +250,9 @@ public class JotaroContent{
                 }
 
                 JotaroRuntime rt = getRuntime(unit);
+                if(rt.comboRecoveryTimer > 0f){
+                    rt.comboRecoveryTimer = Math.max(0f, rt.comboRecoveryTimer - Time.delta);
+                }
                 if(rt.comboIdleTimer > 0f){
                     rt.comboIdleTimer = Math.max(0f, rt.comboIdleTimer - Time.delta);
                     if(rt.comboIdleTimer <= 0f){
@@ -249,19 +264,87 @@ public class JotaroContent{
     }
 
     public static void init(){
+        resolveModSounds();
         if(eventsHooked) return;
         eventsHooked = true;
+
+        Events.on(UnitDamageEvent.class, e -> {
+            if(e.unit != null && e.unit.type == jotaro && e.unit.controller() instanceof MeleeCommandAI ai){
+                ai.notifyThreatened();
+            }
+        });
+
         Events.on(ResetEvent.class, e -> runtimes.clear());
     }
 
-    private static Sound loadModSound(String name){
-        if(Vars.headless) return Sounds.none;
+    private static void resolveModSounds(){
+        if(soundsLoaded || Vars.headless) return;
+        soundsLoaded = true;
+
+        punchSound = loadSoundSmart("punch");
+        heavyPunchSound = loadSoundSmart("heavy-punch");
+        oraRushSound = loadSoundSmart("ora-rush");
+        dashSound = loadSoundSmart("dash");
+        yareYareSound = loadSoundSmart("yare-yare");
+    }
+
+    private static Sound loadSoundSmart(String baseName){
         try{
-            Sound loaded = Vars.tree.loadSound(name);
-            return loaded != null ? loaded : Sounds.none;
-        }catch(Throwable ignored){
+            // 1. Check Core.assets first (just like Mindustry ContentParser)
+            String[] assetKeys = {
+                baseName + ".ogg",
+                baseName + ".mp3",
+                "sounds/" + baseName + ".ogg",
+                "sounds/" + baseName + ".mp3",
+                "assets/sounds/" + baseName + ".ogg",
+                "assets/sounds/" + baseName + ".mp3"
+            };
+            for(String key : assetKeys){
+                Sound existing = Core.assets.getOrNull(key, Sound.class);
+                if(existing != null){
+                    Log.info("[AbilityAdditions] Sound loaded from Core.assets: @", key);
+                    return existing;
+                }
+            }
+
+            // 2. Check Vars.tree
+            if(Vars.tree.get("sounds/" + baseName + ".ogg").exists() || Vars.tree.get("sounds/" + baseName + ".mp3").exists()){
+                Sound s = Vars.tree.loadSound(baseName);
+                Log.info("[AbilityAdditions] Sound queued from Vars.tree: sounds/@", baseName);
+                return s;
+            }
+
+            // 3. Fallback directly inside mod root (handles into("assets") nesting if needed)
+            Mods.LoadedMod mod = Vars.mods.locateMod("ability-additions");
+            if(mod != null && mod.root != null){
+                String[] relPaths = {
+                    "sounds/" + baseName + ".ogg",
+                    "sounds/" + baseName + ".mp3",
+                    "assets/sounds/" + baseName + ".ogg",
+                    "assets/sounds/" + baseName + ".mp3"
+                };
+                for(String rel : relPaths){
+                    Fi fi = mod.root.child(rel);
+                    if(fi.exists()){
+                        Sound s = new Sound();
+                        Core.assets.load(rel, Sound.class, new SoundParameter(s));
+                        Log.info("[AbilityAdditions] Sound loaded from mod root: @", rel);
+                        return s;
+                    }
+                }
+            }
+
+            Log.warn("[AbilityAdditions] Sound not found: @ (.ogg/.mp3) in assets/sounds/", baseName);
+            return Sounds.none;
+        }catch(Throwable t){
+            Log.err("[AbilityAdditions] Failed loading sound " + baseName, t);
             return Sounds.none;
         }
+    }
+
+    private static void playSound(Sound sound, float x, float y, float pitch, float volume){
+        if(Vars.headless || sound == null || sound == Sounds.none) return;
+        sound.at(x, y, pitch, volume);
     }
 
     private static JotaroRuntime getRuntime(Unit unit){
@@ -274,10 +357,17 @@ public class JotaroContent{
     }
 
     private static void loadEffectsAndStatuses(){
-        punchStun = new StatusEffect("jotaro-punch-stun"){{
+        punchSlow = new StatusEffect("jotaro-punch-slow"){{
+            disarm = false;
+            speedMultiplier = 0.45f;
+            reloadMultiplier = 0.78f;
+            show = false;
+        }};
+
+        heavyStun = new StatusEffect("jotaro-heavy-stun"){{
             disarm = true;
-            speedMultiplier = 0.22f;
-            reloadMultiplier = 0.25f;
+            speedMultiplier = 0.12f;
+            reloadMultiplier = 0.15f;
             show = false;
         }};
 
@@ -310,10 +400,10 @@ public class JotaroContent{
 
         dashAfterimageEffect = new Effect(18f, e -> {
             Draw.color(JOTARO_PURPLE, Color.white, 0.3f);
-            Draw.alpha(0.55f * e.fout());
+            Draw.alpha(0.6f * e.fout());
             Lines.stroke(2.5f * e.fout());
-            Lines.circle(e.x, e.y, 7f + e.fin() * 9f);
-            Drawf.tri(e.x, e.y, 6f * e.fout(), 14f, e.rotation);
+            Lines.circle(e.x, e.y, 7f + e.fin() * 10f);
+            Drawf.tri(e.x, e.y, 6.5f * e.fout(), 15f, e.rotation);
         });
 
         sprintDustEffect = new Effect(16f, e -> {
@@ -341,7 +431,6 @@ public class JotaroContent{
     }
 
     private static void loadRockBullet(){
-        // Non-glowing vanilla stone boulder projectile
         rockProjectile = new BasicBulletType(8.2f, 52f){{
             lifetime = 32f;
             damage = 52f;
@@ -380,7 +469,7 @@ public class JotaroContent{
 
                 float oldZ = Draw.z();
                 Draw.z(Layer.flyingUnit + 0.2f);
-                Draw.color(); // Natural stone color with zero glow
+                Draw.color();
                 if(rockTex != null && rockTex.found()){
                     Draw.rect(rockTex, b.x, b.y, 9f, 9f, b.id * 45f + b.time * 16f);
                 }else{
@@ -396,16 +485,26 @@ public class JotaroContent{
         }
     }
 
-    // Ability 1: Dash + Sprint when chasing distant enemies (silent)
+    // Ability 1: Smart Dash, Bullet Weave Dodge & Sprint
     public static class SprintDashAbility extends Ability{
         @Override
         public String localized(){
-            return "Delinquent Dash & Sprint";
+            return "Delinquent Dash & Weave";
         }
 
         @Override
         public void addStats(Table t){
-            t.add("[lightgray]Sprints toward far ground targets and dashes into melee range, stopping sprint once close.[]").wrap().width(320f);
+            t.add("[lightgray]Dashes to close M1 gaps, weaves diagonally through incoming bullets while charging, and sprints until reaching close range.[]").wrap().width(320f);
+        }
+
+        @Override
+        public void displayBars(Unit unit, Table bars){
+            if(!(unit.controller() instanceof MeleeCommandAI ai)) return;
+            bars.add(new Bar(
+                () -> ai.dashCooldown <= 0f ? "Dash Ready" : "Dash: " + Strings.fixed(ai.dashCooldown / 60f, 1) + "s",
+                () -> ai.dashCooldown <= 0f ? JOTARO_PURPLE : Color.gray,
+                () -> 1f - Mathf.clamp(ai.dashCooldown / ai.dashCooldownDuration)
+            )).row();
         }
 
         @Override
@@ -413,7 +512,11 @@ public class JotaroContent{
             if(!(unit.controller() instanceof MeleeCommandAI ai)) return;
 
             if(ai.dashTriggeredThisTick){
-                dashAfterimageEffect.at(unit.x, unit.y, unit.rotation);
+                dashAfterimageEffect.at(unit.x, unit.y, ai.dashAngle);
+                playSound(dashSound, unit.x, unit.y, Mathf.random(0.95f, 1.05f), 0.85f);
+            }
+            if(ai.dashTimer > 0f && Mathf.chanceDelta(0.75f)){
+                dashAfterimageEffect.at(unit.x, unit.y, ai.dashAngle);
             }
 
             if(ai.sprinting){
@@ -427,10 +530,10 @@ public class JotaroContent{
         }
     }
 
-    // Ability 2: Independent Pinpoint Anti-Air Rock Throw (uses custom rock-throw sound)
+    // Ability 2: Independent Pinpoint Anti-Air Rock Throw
     public static class RockThrowAbility extends Ability{
         public float range = 185f;
-        public float cooldown = 55f; // ~0.9s between throws
+        public float cooldown = 55f;
 
         @Override
         public String localized(){
@@ -458,14 +561,11 @@ public class JotaroContent{
 
             rockProjectile.create(unit, unit.team, unit.x, unit.y, ang);
             rockThrowMuzzle.at(unit.x, unit.y, ang);
-            if(rockThrowSound != null && rockThrowSound != Sounds.none){
-                rockThrowSound.at(unit.x, unit.y, Mathf.random(0.95f, 1.05f));
-            }
             rt.rockCooldown = cooldown;
         }
     }
 
-    // Ability 3: ORA ORA Rush (charged by landing M1s, silent)
+    // Ability 3: ORA ORA Rush (aligned to 5.5s ora-rush.ogg + 10s cooldown)
     public static class OraRushAbility extends Ability{
         private final MeleeType flurryType;
         private final MeleeType finisherType;
@@ -482,16 +582,20 @@ public class JotaroContent{
 
         @Override
         public void addStats(Table t){
-            t.add("[lightgray]Every 6 M1 strikes triggers a 1.8s rapid punch flurry ending in a heavy knockback finisher.[]").wrap().width(320f);
+            t.add("[lightgray]6 confirmed M1 hits charge a 5.25s ORA punch flurry ending in a Heavy Finisher, then enters a 10s cooldown.[]").wrap().width(320f);
         }
 
         @Override
         public void displayBars(Unit unit, Table bars){
             JotaroRuntime rt = getRuntime(unit);
             bars.add(new Bar(
-                () -> rt.oraActive ? "ORA ORA RUSH!" : "ORA Charge: " + rt.oraCharge + "/6",
-                () -> rt.oraActive ? JOTARO_GOLD : JOTARO_PURPLE,
-                () -> rt.oraActive ? Mathf.clamp(rt.oraTimer / 108f) : Mathf.clamp(rt.oraCharge / 6f)
+                () -> rt.oraActive ? "ORA ORA RUSH! " + Strings.fixed(rt.oraTimer / 60f, 1) + "s"
+                    : rt.oraCooldown > 0f ? "ORA Cooldown: " + Strings.fixed(rt.oraCooldown / 60f, 1) + "s"
+                    : "ORA Charge: " + rt.oraCharge + "/6",
+                () -> rt.oraActive ? JOTARO_GOLD : (rt.oraCooldown > 0f ? Color.scarlet : JOTARO_PURPLE),
+                () -> rt.oraActive ? Mathf.clamp(rt.oraTimer / ORA_DURATION_TICKS)
+                    : rt.oraCooldown > 0f ? Mathf.clamp(rt.oraCooldown / ORA_COOLDOWN_TICKS)
+                    : Mathf.clamp(rt.oraCharge / 6f)
             )).row();
         }
 
@@ -499,15 +603,20 @@ public class JotaroContent{
         public void update(Unit unit){
             JotaroRuntime rt = getRuntime(unit);
 
+            if(rt.oraCooldown > 0f){
+                rt.oraCooldown = Math.max(0f, rt.oraCooldown - Time.delta);
+            }
+
             if(!rt.oraActive){
-                if(rt.oraCharge >= 6){
+                if(rt.oraCooldown <= 0f && rt.oraCharge >= 6){
                     Unit nearby = Units.closestEnemy(unit.team, unit.x, unit.y, 44f, u -> !u.dead && !u.isFlying());
                     if(nearby != null){
                         rt.oraCharge = 0;
                         rt.oraActive = true;
-                        rt.oraTimer = 108f; // 1.8s
+                        rt.oraTimer = ORA_DURATION_TICKS;
                         rt.oraTickTimer = 0f;
                         Effect.shake(1.5f, 1.5f, unit);
+                        playSound(oraRushSound, unit.x, unit.y, 1f, 0.95f);
                     }
                 }
                 return;
@@ -517,7 +626,7 @@ public class JotaroContent{
             rt.oraTickTimer -= Time.delta;
 
             if(rt.oraTickTimer <= 0f){
-                rt.oraTickTimer = 7f;
+                rt.oraTickTimer = 10f;
                 float ox = unit.x + Angles.trnsx(unit.rotation, 6f);
                 float oy = unit.y + Angles.trnsy(unit.rotation, 6f);
                 flurryType.execute(unit, ox, oy, unit.rotation);
@@ -525,14 +634,16 @@ public class JotaroContent{
 
             if(rt.oraTimer <= 0f){
                 rt.oraActive = false;
+                rt.oraCooldown = ORA_COOLDOWN_TICKS;
                 float ox = unit.x + Angles.trnsx(unit.rotation, 8f);
                 float oy = unit.y + Angles.trnsy(unit.rotation, 8f);
                 finisherType.execute(unit, ox, oy, unit.rotation);
+                playSound(heavyPunchSound, ox, oy, 0.95f, 0.95f);
             }
         }
     }
 
-    // Ability 4: Yare Yare Daze (Resolve under 45% HP, silent)
+    // Ability 4: Yare Yare Daze (aligned to 2s yare-yare.ogg)
     public static class YareResolveAbility extends Ability{
         @Override
         public String localized(){
@@ -560,6 +671,7 @@ public class JotaroContent{
                 unit.unapply(StatusEffects.burning);
                 unit.apply(resolveBuff, 180f);
                 Fx.healWave.at(unit.x, unit.y, JOTARO_GOLD);
+                playSound(yareYareSound, unit.x, unit.y, 1f, 0.95f);
             }
         }
     }
@@ -567,13 +679,15 @@ public class JotaroContent{
     private static class JotaroRuntime{
         int comboStep = 0;
         float comboIdleTimer = 0f;
+        float comboRecoveryTimer = 0f;
         float rockCooldown = 0f;
 
         int oraCharge = 0;
         boolean oraActive = false;
         float oraTimer = 0f;
         float oraTickTimer = 0f;
+        float oraCooldown = 0f;
 
         float resolveCooldown = 0f;
     }
-              }
+                                                                  }
