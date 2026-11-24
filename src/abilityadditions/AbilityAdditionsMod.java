@@ -10,6 +10,7 @@ public class AbilityAdditionsMod extends Mod{
     public void loadContent(){
         PierceTurret.load();
         TestDummyContent.load();
+        JotaroContent.load();
 
         AbilityManager manager = AbilityManager.instance();
         SerpuloTurretAbilities.load(manager);
@@ -20,6 +21,7 @@ public class AbilityAdditionsMod extends Mod{
     public void init(){
         PierceTurret.attachTechTree();
         TestDummyContent.init();
+        JotaroContent.init();
         AbilityManager.instance().initEvents();
     }
 }
