@@ -7,31 +7,41 @@ import mindustry.*;
 import mindustry.ai.*;
 import mindustry.ai.types.*;
 import mindustry.entities.*;
+import mindustry.entities.units.*;
 import mindustry.gen.*;
 import mindustry.world.*;
 
 public class MeleeCommandAI extends CommandAI{
 
-    public float detectThreatRange = 136f; // 17 tiles (independent of melee reach)
+    public float detectThreatRange = 136f; // 17 tiles
     public float sprintStartEdgeDist = 36f;
     public float sprintStopEdgeDist = 24f;
 
-    public float dashMinEdgeDist = 42f;
-    public float dashMaxEdgeDist = 112f;
-    public float dashCooldownDuration = 210f; // 3.5s
-    public float dashBurstTicks = 7f;
-    public float dashBurstSpeed = 8.4f;
+    // Ability 1A: Long Lunge Dash (Gap Closer)
+    public float lungeMinEdgeDist = 64f;
+    public float lungeMaxEdgeDist = 136f;
+    public float lungeCooldownDuration = 360f; // 6.0s
+    public float lungeBurstTicks = 9f;
+    public float lungeBurstSpeed = 7.4f;
 
-    public float dashCooldown = 0f;
+    // Ability 1B: Short Dodge Dash + Continuous Bullet Weave
+    public float dodgeCooldownDuration = 180f; // 3.0s
+    public float dodgeBurstTicks = 6f;
+    public float dodgeBurstSpeed = 6.2f;
+
+    public float lungeCooldown = 0f;
+    public float dodgeCooldown = 0f;
     public float dashTimer = 0f;
+    public float dashSpeed = 0f;
     public float dashAngle = 0f;
     public float threatAlertTimer = 0f;
 
     public boolean sprinting = false;
-    public boolean dashTriggeredThisTick = false;
+    public boolean lungeTriggeredThisTick = false;
+    public boolean dodgeTriggeredThisTick = false;
 
     public void notifyThreatened(){
-        threatAlertTimer = 240f; // 4s alert when attacked
+        threatAlertTimer = 240f;
     }
 
     @Override
@@ -43,7 +53,6 @@ public class MeleeCommandAI extends CommandAI{
             attackTarget = null;
         }
 
-        // Acquire ground threats within detectThreatRange (or when hurt) if not given a manual move order
         if(attackTarget == null && targetPos == null && !hasStance(UnitStance.holdFire)){
             float scanRange = threatAlertTimer > 0f ? detectThreatRange * 1.35f : detectThreatRange;
             Teamc threat = Units.closestTarget(unit.team, unit.x, unit.y, scanRange,
@@ -58,42 +67,57 @@ public class MeleeCommandAI extends CommandAI{
 
     @Override
     public void updateUnit(){
-        dashTriggeredThisTick = false;
-        if(dashCooldown > 0f) dashCooldown = Math.max(0f, dashCooldown - Time.delta);
+        lungeTriggeredThisTick = false;
+        dodgeTriggeredThisTick = false;
+
+        if(lungeCooldown > 0f) lungeCooldown = Math.max(0f, lungeCooldown - Time.delta);
+        if(dodgeCooldown > 0f) dodgeCooldown = Math.max(0f, dodgeCooldown - Time.delta);
         if(threatAlertTimer > 0f) threatAlertTimer = Math.max(0f, threatAlertTimer - Time.delta);
 
-        // Active dash burst velocity (overcomes ground mech drag cleanly)
-        if(dashTimer > 0f){
-            dashTimer = Math.max(0f, dashTimer - Time.delta);
-            if(!isPathBlocked(dashAngle, 14f)){
-                unit.vel.set(Angles.trnsx(dashAngle, dashBurstSpeed), Angles.trnsy(dashAngle, dashBurstSpeed));
-            }else{
-                dashTimer = 0f;
-            }
-        }
-
+        // Run base CommandAI first so our weave & dash velocity never get overwritten on the same tick
         super.updateUnit();
 
         if(attackTarget instanceof Unit u && u.isFlying() && !unit.type.targetAir){
             attackTarget = null;
         }
-
-        // Auto-weave dodge incoming bullets (even when idle or mid-chase!)
-        if(dashCooldown <= 0f && dashTimer <= 0f){
-            tryWeaveBulletDodge();
+        if(attackTarget != null && Units.invalidateTarget(attackTarget, unit.team, unit.x, unit.y, Float.MAX_VALUE)){
+            attackTarget = null;
         }
 
-        if(attackTarget == null || Units.invalidateTarget(attackTarget, unit.team, unit.x, unit.y, Float.MAX_VALUE)){
+        // 1. Active dash burst overrides velocity AFTER super.updateUnit()
+        if(dashTimer > 0f){
+            dashTimer = Math.max(0f, dashTimer - Time.delta);
+            if(!isPathBlocked(dashAngle, 14f)){
+                unit.vel.set(Angles.trnsx(dashAngle, dashSpeed), Angles.trnsy(dashAngle, dashSpeed));
+            }else{
+                dashTimer = 0f;
+            }
+        }
+
+        // 2. Smooth continuous bullet weaving while moving/chasing toward a goal
+        if(dashTimer <= 0f){
+            applyBulletWeaveSteering();
+        }
+
+        // 3. Snap Dodge Dash (3s cooldown) when a bullet is about to hit
+        if(dodgeCooldown <= 0f && dashTimer <= 0f){
+            tryDodgeDash();
+        }
+
+        // 4. Target handling + clean weapon stop after kill
+        if(attackTarget == null){
             sprinting = false;
 
-            // Even while walking to a targetPos, punch back any ground threat right in his face
-            if(!hasStance(UnitStance.holdFire)){
-                Unit closeThreat = Units.closestEnemy(unit.team, unit.x, unit.y, 34f, u -> !u.dead && !u.isFlying());
-                if(closeThreat != null){
-                    unit.lookAt(closeThreat);
-                    unit.aim(closeThreat);
-                    unit.controlWeapons(true, true);
-                }
+            Unit closeThreat = !hasStance(UnitStance.holdFire)
+                ? Units.closestEnemy(unit.team, unit.x, unit.y, 32f, u -> !u.dead && !u.isFlying() && u.hittable())
+                : null;
+
+            if(closeThreat != null){
+                unit.lookAt(closeThreat);
+                unit.aim(closeThreat);
+                unit.controlWeapons(true, true);
+            }else{
+                stopAttacking();
             }
             return;
         }
@@ -101,74 +125,83 @@ public class MeleeCommandAI extends CommandAI{
         float targetRad = attackTarget instanceof Sized s ? s.hitSize() * 0.5f : 0f;
         float edgeDst = unit.dst(attackTarget) - unit.hitSize * 0.5f - targetRad;
 
-        // Sprint when chasing from far; stop sprinting smoothly once close
         if(!sprinting && edgeDst > sprintStartEdgeDist){
             sprinting = true;
         }else if(sprinting && edgeDst <= sprintStopEdgeDist){
             sprinting = false;
         }
 
-        // Offensive gap-close dash for M1 (only when clear path & outside punch reach)
-        if(dashCooldown <= 0f && dashTimer <= 0f && edgeDst >= dashMinEdgeDist && edgeDst <= dashMaxEdgeDist){
+        // 5. Offensive Lunge Dash (6s cooldown) to close medium/long gap
+        if(lungeCooldown <= 0f && dashTimer <= 0f && edgeDst >= lungeMinEdgeDist && edgeDst <= lungeMaxEdgeDist){
             float chaseAng = Angles.angle(unit.x, unit.y, attackTarget.x(), attackTarget.y());
-            if(!isPathBlocked(chaseAng, 34f)){
-                triggerDash(chaseAng);
+            if(!isPathBlocked(chaseAng, 48f)){
+                dashAngle = chaseAng;
+                dashTimer = lungeBurstTicks;
+                dashSpeed = lungeBurstSpeed;
+                lungeCooldown = lungeCooldownDuration;
+                lungeTriggeredThisTick = true;
+                unit.vel.set(Angles.trnsx(dashAngle, dashSpeed), Angles.trnsy(dashAngle, dashSpeed));
             }
         }
 
-        // Move tightly up to edge-to-edge melee distance
+        // Tight edge-to-edge approach (only when not mid-dash)
         float desiredCenterDist = unit.hitSize * 0.5f + targetRad + 5f;
         if(edgeDst > 10f && edgeDst <= 64f && dashTimer <= 0f){
             moveTo(attackTarget, desiredCenterDist);
         }
 
-        if(!hasStance(UnitStance.holdFire) && edgeDst <= Math.max(unit.range(), 26f)){
+        float punchReach = Math.max(unit.range(), 26f);
+        if(!hasStance(UnitStance.holdFire) && edgeDst <= punchReach){
             unit.lookAt(attackTarget);
             unit.aim(attackTarget);
             unit.controlWeapons(true, true);
+        }else{
+            stopAttacking();
         }
     }
 
-    private void tryWeaveBulletDodge(){
-        Bullet threatBullet = null;
-        float bestUrgency = Float.MAX_VALUE;
+    private void stopAttacking(){
+        unit.controlWeapons(false, false);
+        for(WeaponMount m : unit.mounts){
+            m.shoot = false;
+        }
+    }
 
-        for(Bullet b : Groups.bullet){
-            if(b == null || !b.isAdded() || b.team == unit.team) continue;
-            if(b.damage + b.type.splashDamage < 5f) continue;
+    private void applyBulletWeaveSteering(){
+        Position goal = attackTarget != null ? attackTarget : targetPos;
+        if(goal == null || unit.within(goal, 26f)) return;
 
-            float speed = b.vel.len();
-            if(speed < 0.8f) continue;
+        Bullet nearestThreat = findIncomingBullet(132f, 34f, unit.hitSize + 18f);
+        if(nearestThreat == null) return;
 
-            float dst = unit.dst(b);
-            if(dst > 104f) continue;
+        float goalAng = Angles.angle(unit.x, unit.y, goal.getX(), goal.getY());
+        float bAng = nearestThreat.vel.angle();
 
-            // Ignore homing bullets until close so dash isn't wasted early
-            if(b.type.homingPower > 0f && dst > 44f) continue;
+        // Pick whichever weave side (+52 deg or -52 deg) steers away from the bullet line
+        float leftWeave = goalAng + 52f;
+        float rightWeave = goalAng - 52f;
 
-            // Vector from bullet to unit
-            float dx = unit.x - b.x;
-            float dy = unit.y - b.y;
-            float vx = b.vel.x / speed;
-            float vy = b.vel.y / speed;
+        float lx = unit.x + Angles.trnsx(leftWeave, 18f);
+        float ly = unit.y + Angles.trnsy(leftWeave, 18f);
+        float rx = unit.x + Angles.trnsx(rightWeave, 18f);
+        float ry = unit.y + Angles.trnsy(rightWeave, 18f);
 
-            float forwardProj = dx * vx + dy * vy;
-            if(forwardProj < -4f) continue; // already passed
+        float bDirX = Mathf.cosDeg(bAng);
+        float bDirY = Mathf.sinDeg(bAng);
+        float leftDistFromLine = Math.abs((lx - nearestThreat.x) * bDirY - (ly - nearestThreat.y) * bDirX);
+        float rightDistFromLine = Math.abs((rx - nearestThreat.x) * bDirY - (ry - nearestThreat.y) * bDirX);
 
-            float timeToClosest = forwardProj / speed;
-            if(timeToClosest > 24f) continue; // more than 0.4s away
-
-            float closestX = b.x + vx * forwardProj;
-            float closestY = b.y + vy * forwardProj;
-            float missDist = Mathf.dst(unit.x, unit.y, closestX, closestY);
-            float dangerRadius = unit.hitSize * 0.85f + b.hitSize + 6f;
-
-            if(missDist <= dangerRadius && timeToClosest < bestUrgency){
-                bestUrgency = timeToClosest;
-                threatBullet = b;
-            }
+        float chosen = leftDistFromLine >= rightDistFromLine ? leftWeave : rightWeave;
+        if(isPathBlocked(chosen, 20f)){
+            chosen = chosen == leftWeave ? rightWeave : leftWeave;
+            if(isPathBlocked(chosen, 20f)) return;
         }
 
+        unit.moveAt(Tmp.v1.trns(chosen, unit.speed()));
+    }
+
+    private void tryDodgeDash(){
+        Bullet threatBullet = findIncomingBullet(96f, 20f, unit.hitSize * 0.85f + 8f);
         if(threatBullet == null) return;
 
         float bAng = threatBullet.vel.angle();
@@ -179,14 +212,12 @@ public class MeleeCommandAI extends CommandAI{
         float candidateA = leftPerp;
         float candidateB = rightPerp;
 
-        // If moving/chasing toward a goal, blend dodge diagonally forward so he weaves smoothly toward enemy!
+        // Blend diagonally forward while running toward a goal so dodge flows smoothly with movement
         if(goal != null && !unit.within(goal, 28f)){
             float goalAng = Angles.angle(unit.x, unit.y, goal.getX(), goal.getY());
-            // Pick +/-55 deg weave offset around goal or blend perpendicular toward goal
-            candidateA = blendAngles(leftPerp, goalAng, 0.42f);
-            candidateB = blendAngles(rightPerp, goalAng, 0.42f);
+            candidateA = blendAngles(leftPerp, goalAng, 0.40f);
+            candidateB = blendAngles(rightPerp, goalAng, 0.40f);
 
-            // Prefer the weave direction closer to the goal
             if(Math.abs(Angles.angleDist(candidateB, goalAng)) < Math.abs(Angles.angleDist(candidateA, goalAng))){
                 float tmp = candidateA;
                 candidateA = candidateB;
@@ -194,18 +225,58 @@ public class MeleeCommandAI extends CommandAI{
             }
         }
 
-        if(!isPathBlocked(candidateA, 34f)){
-            triggerDash(candidateA);
-        }else if(!isPathBlocked(candidateB, 34f)){
-            triggerDash(candidateB);
+        if(!isPathBlocked(candidateA, 26f)){
+            triggerDodge(candidateA);
+        }else if(!isPathBlocked(candidateB, 26f)){
+            triggerDodge(candidateB);
         }
     }
 
-    private void triggerDash(float angle){
+    private @Nullable Bullet findIncomingBullet(float maxDist, float maxTicksAhead, float corridorHalfWidth){
+        Bullet best = null;
+        float bestTime = Float.MAX_VALUE;
+
+        for(Bullet b : Groups.bullet){
+            if(b == null || !b.isAdded() || b.team == unit.team) continue;
+            if(b.damage + b.type.splashDamage < 5f) continue;
+
+            float speed = b.vel.len();
+            if(speed < 0.8f) continue;
+
+            float dst = unit.dst(b);
+            if(dst > maxDist) continue;
+            if(b.type.homingPower > 0f && dst > 44f) continue;
+
+            float vx = b.vel.x / speed;
+            float vy = b.vel.y / speed;
+            float dx = unit.x - b.x;
+            float dy = unit.y - b.y;
+
+            float forwardProj = dx * vx + dy * vy;
+            if(forwardProj < -4f) continue;
+
+            float timeToClosest = forwardProj / speed;
+            if(timeToClosest > maxTicksAhead) continue;
+
+            float closestX = b.x + vx * forwardProj;
+            float closestY = b.y + vy * forwardProj;
+            float missDist = Mathf.dst(unit.x, unit.y, closestX, closestY);
+
+            if(missDist <= corridorHalfWidth + b.hitSize && timeToClosest < bestTime){
+                bestTime = timeToClosest;
+                best = b;
+            }
+        }
+        return best;
+    }
+
+    private void triggerDodge(float angle){
         dashAngle = angle;
-        dashTimer = dashBurstTicks;
-        dashCooldown = dashCooldownDuration;
-        dashTriggeredThisTick = true;
+        dashTimer = dodgeBurstTicks;
+        dashSpeed = dodgeBurstSpeed;
+        dodgeCooldown = dodgeCooldownDuration;
+        dodgeTriggeredThisTick = true;
+        unit.vel.set(Angles.trnsx(dashAngle, dashSpeed), Angles.trnsy(dashAngle, dashSpeed));
     }
 
     private float blendAngles(float a, float b, float t){
@@ -225,4 +296,4 @@ public class MeleeCommandAI extends CommandAI{
         }
         return false;
     }
-                                          } 
+                }
