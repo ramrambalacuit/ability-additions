@@ -18,18 +18,18 @@ public class MeleeCommandAI extends CommandAI{
     public float sprintStartEdgeDist = 36f;
     public float sprintStopEdgeDist = 24f;
 
-    public float baseDesiredEdgeDist = 5f;
-    public float standDesiredEdgeDist = 26f; // ~3.25 tiles standoff in Stand mode
+    public float baseDesiredEdgeDist = 6f;
+    public float standDesiredEdgeDist = 38f; // ~4.75 tiles standoff so Jotaro backs up cleanly behind Stand
 
     // Lunge Dash / Time-Skip Teleport (6s cooldown)
-    public float lungeMinEdgeDist = 56f;
-    public float lungeMaxEdgeDist = 144f;
+    public float lungeMinEdgeDist = 60f;
+    public float lungeMaxEdgeDist = 148f;
     public float lungeCooldownDuration = 360f; // 6.0s
     public float lungeBurstTicks = 9f;
     public float lungeBurstSpeed = 7.4f;
 
     // Combat Flank Dodge Dash (3s cooldown, only near enemies in combat range)
-    public float flankCombatMaxEdgeDist = 72f; // 9 tiles
+    public float flankCombatMaxEdgeDist = 76f; // 9.5 tiles
     public float dodgeCooldownDuration = 180f; // 3.0s
     public float baseDodgeTicks = 6f;
     public float baseDodgeSpeed = 6.4f;
@@ -43,6 +43,7 @@ public class MeleeCommandAI extends CommandAI{
 
     public boolean sprinting = false;
     public boolean standAwakened = false;
+    public boolean standActiveOut = false; // true when Stand awakened OR Base ORA Rush popped Stand out
     public boolean entrancePaused = false;
     public boolean activeFlankDash = false;
     public @Nullable Teamc flankTarget = null;
@@ -80,7 +81,6 @@ public class MeleeCommandAI extends CommandAI{
         if(dodgeCooldown > 0f) dodgeCooldown = Math.max(0f, dodgeCooldown - Time.delta);
         if(threatAlertTimer > 0f) threatAlertTimer = Math.max(0f, threatAlertTimer - Time.delta);
 
-        // Freeze normal AI cleanly during 5s Stand Entrance roar or 24s Ultimate Cutscene
         if(entrancePaused){
             dashTimer = 0f;
             sprinting = false;
@@ -99,14 +99,13 @@ public class MeleeCommandAI extends CommandAI{
             attackTarget = null;
         }
 
-        // Active dash burst overrides velocity AFTER super.updateUnit()
         if(dashTimer > 0f){
             dashTimer = Math.max(0f, dashTimer - Time.delta);
             if(activeFlankDash && flankTarget != null && !Units.invalidateTarget(flankTarget, unit.team, unit.x, unit.y, Float.MAX_VALUE)){
                 float toTarget = Angles.angle(unit.x, unit.y, flankTarget.x(), flankTarget.y());
                 float targetRad = flankTarget instanceof Sized s ? s.hitSize() * 0.5f : 6f;
                 float dst = unit.dst(flankTarget);
-                if(dst < targetRad + unit.hitSize * 0.6f + 8f){
+                if(dst < targetRad + unit.hitSize * 0.6f + 10f){
                     dashAngle = toTarget + (Angles.forwardDistance(toTarget, dashAngle) >= 0f ? 66f : -66f);
                 }
                 unit.lookAt(flankTarget);
@@ -129,7 +128,8 @@ public class MeleeCommandAI extends CommandAI{
             applyBulletWeaveSteering();
         }
 
-        float punchReach = standAwakened ? 48f : Math.max(unit.range(), 28f);
+        // Dynamic range: 28px in Base mode -> 54px whenever Stand is out (Stand Mode OR Base ORA Rush)
+        float punchReach = standActiveOut ? 54f : 28f;
 
         if(attackTarget == null){
             sprinting = false;
@@ -151,8 +151,8 @@ public class MeleeCommandAI extends CommandAI{
         float targetRad = attackTarget instanceof Sized s ? s.hitSize() * 0.5f : 0f;
         float edgeDst = unit.dst(attackTarget) - unit.hitSize * 0.5f - targetRad;
 
-        float sprintStop = standAwakened ? 38f : sprintStopEdgeDist;
-        float sprintStart = standAwakened ? 48f : sprintStartEdgeDist;
+        float sprintStop = standActiveOut ? 44f : sprintStopEdgeDist;
+        float sprintStart = standActiveOut ? 56f : sprintStartEdgeDist;
 
         if(!sprinting && edgeDst > sprintStart){
             sprinting = true;
@@ -160,9 +160,9 @@ public class MeleeCommandAI extends CommandAI{
             sprinting = false;
         }
 
-        // Combat Flank Dodge Dash (3s CD, ONLY near enemies in combat range, scaled by target size)
+        // Combat Flank Dodge Dash (3s CD, scaled by target size)
         if(dodgeCooldown <= 0f && dashTimer <= 0f && edgeDst <= flankCombatMaxEdgeDist){
-            boolean dangerNearby = findIncomingBullet(96f, 24f, unit.hitSize * 0.95f + 12f) != null || edgeDst <= 44f;
+            boolean dangerNearby = findIncomingBullet(96f, 24f, unit.hitSize * 0.95f + 12f) != null || edgeDst <= 48f;
             if(dangerNearby){
                 triggerCombatFlankDash(attackTarget, targetRad);
             }
@@ -186,21 +186,21 @@ public class MeleeCommandAI extends CommandAI{
             }
         }
 
-        // Hold cool standoff distance in Stand mode so Star Platinum punches ahead
+        // Auto-backstep & standoff whenever Star Platinum is out (Stand Mode OR Base ORA Rush)
         if(dashTimer <= 0f){
-            float desiredEdge = standAwakened ? standDesiredEdgeDist : baseDesiredEdgeDist;
+            float desiredEdge = standActiveOut ? standDesiredEdgeDist : baseDesiredEdgeDist;
             float desiredCenterDist = unit.hitSize * 0.5f + targetRad + desiredEdge;
 
-            if(standAwakened && edgeDst < 16f){
+            if(standActiveOut && edgeDst < 30f){
                 float backAng = Angles.angle(attackTarget.x(), attackTarget.y(), unit.x, unit.y);
                 if(!isPathBlocked(backAng, 16f)){
-                    unit.moveAt(Tmp.v1.trns(backAng, unit.speed() * 0.9f));
+                    unit.moveAt(Tmp.v1.trns(backAng, unit.speed() * 1.15f));
                 }
                 unit.lookAt(attackTarget);
-            }else if(edgeDst > desiredEdge + 4f && edgeDst <= 84f){
+            }else if(edgeDst > desiredEdge + 4f && edgeDst <= 96f){
                 moveTo(attackTarget, desiredCenterDist);
             }else if(edgeDst <= punchReach){
-                unit.vel.scl(0.82f);
+                unit.vel.scl(0.80f);
                 unit.lookAt(attackTarget);
             }
         }
@@ -352,4 +352,4 @@ public class MeleeCommandAI extends CommandAI{
         }
         return false;
     }
-            }
+}
