@@ -80,7 +80,7 @@ public class JotaroContent{
     private static final float TIME_STOP_RADIUS = 176f; // 22 tiles
     private static final float CLOCK_VISUAL_TICKS = 150f; // 2.50s visible expanding clock
 
-    private static final int ULTIMATE_M1_REQUIREMENT = 1000;
+    private static final int ULTIMATE_M1_REQUIREMENT = 100;
     private static final float ULTIMATE_DURATION_TICKS = 1440f; // 24.0s exact cutscene
 
     private static Effect punchArcEffect;
