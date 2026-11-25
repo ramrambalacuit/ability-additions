@@ -18,6 +18,9 @@ public class MeleeCommandAI extends CommandAI{
     public float sprintStartEdgeDist = 36f;
     public float sprintStopEdgeDist = 24f;
 
+    public float baseDesiredEdgeDist = 5f;
+    public float standDesiredEdgeDist = 26f; // ~3.25 tiles standoff in Stand mode
+
     // Lunge Dash / Time-Skip Teleport (6s cooldown)
     public float lungeMinEdgeDist = 56f;
     public float lungeMaxEdgeDist = 144f;
@@ -26,10 +29,10 @@ public class MeleeCommandAI extends CommandAI{
     public float lungeBurstSpeed = 7.4f;
 
     // Combat Flank Dodge Dash (3s cooldown, only near enemies in combat range)
-    public float flankCombatMaxEdgeDist = 72f; // 9 tiles combat range
+    public float flankCombatMaxEdgeDist = 72f; // 9 tiles
     public float dodgeCooldownDuration = 180f; // 3.0s
     public float baseDodgeTicks = 6f;
-    public float baseDodgeSpeed = 6.2f;
+    public float baseDodgeSpeed = 6.4f;
 
     public float lungeCooldown = 0f;
     public float dodgeCooldown = 0f;
@@ -40,6 +43,7 @@ public class MeleeCommandAI extends CommandAI{
 
     public boolean sprinting = false;
     public boolean standAwakened = false;
+    public boolean entrancePaused = false;
     public boolean activeFlankDash = false;
     public @Nullable Teamc flankTarget = null;
     public @Nullable Cons<Unit> onDashAudio;
@@ -76,6 +80,16 @@ public class MeleeCommandAI extends CommandAI{
         if(dodgeCooldown > 0f) dodgeCooldown = Math.max(0f, dodgeCooldown - Time.delta);
         if(threatAlertTimer > 0f) threatAlertTimer = Math.max(0f, threatAlertTimer - Time.delta);
 
+        // Freeze movement/attacks cleanly during Stand Awakening roar
+        if(entrancePaused){
+            dashTimer = 0f;
+            sprinting = false;
+            activeFlankDash = false;
+            unit.vel.setZero();
+            stopAttacking();
+            return;
+        }
+
         super.updateUnit();
 
         if(attackTarget instanceof Unit u && u.isFlying() && !unit.type.targetAir){
@@ -89,12 +103,11 @@ public class MeleeCommandAI extends CommandAI{
         if(dashTimer > 0f){
             dashTimer = Math.max(0f, dashTimer - Time.delta);
             if(activeFlankDash && flankTarget != null && !Units.invalidateTarget(flankTarget, unit.team, unit.x, unit.y, Float.MAX_VALUE)){
-                // Keep curving smoothly around behind the target
                 float toTarget = Angles.angle(unit.x, unit.y, flankTarget.x(), flankTarget.y());
                 float targetRad = flankTarget instanceof Sized s ? s.hitSize() * 0.5f : 6f;
                 float dst = unit.dst(flankTarget);
-                if(dst < targetRad + unit.hitSize * 0.6f + 6f){
-                    dashAngle = toTarget + (Angles.forwardDistance(toTarget, dashAngle) >= 0f ? 62f : -62f);
+                if(dst < targetRad + unit.hitSize * 0.6f + 8f){
+                    dashAngle = toTarget + (Angles.forwardDistance(toTarget, dashAngle) >= 0f ? 66f : -66f);
                 }
                 unit.lookAt(flankTarget);
             }
@@ -116,11 +129,13 @@ public class MeleeCommandAI extends CommandAI{
             applyBulletWeaveSteering();
         }
 
+        float punchReach = standAwakened ? 48f : Math.max(unit.range(), 28f);
+
         if(attackTarget == null){
             sprinting = false;
 
             Unit closeThreat = !hasStance(UnitStance.holdFire)
-                ? Units.closestEnemy(unit.team, unit.x, unit.y, Math.max(unit.range(), 32f), u -> !u.dead && !u.isFlying() && u.hittable())
+                ? Units.closestEnemy(unit.team, unit.x, unit.y, punchReach, u -> !u.dead && !u.isFlying() && u.hittable())
                 : null;
 
             if(closeThreat != null){
@@ -136,15 +151,18 @@ public class MeleeCommandAI extends CommandAI{
         float targetRad = attackTarget instanceof Sized s ? s.hitSize() * 0.5f : 0f;
         float edgeDst = unit.dst(attackTarget) - unit.hitSize * 0.5f - targetRad;
 
-        if(!sprinting && edgeDst > sprintStartEdgeDist){
+        float sprintStop = standAwakened ? 38f : sprintStopEdgeDist;
+        float sprintStart = standAwakened ? 48f : sprintStartEdgeDist;
+
+        if(!sprinting && edgeDst > sprintStart){
             sprinting = true;
-        }else if(sprinting && edgeDst <= sprintStopEdgeDist){
+        }else if(sprinting && edgeDst <= sprintStop){
             sprinting = false;
         }
 
         // Combat Flank Dodge Dash (3s CD, ONLY near enemies in combat range, scaled by target size)
         if(dodgeCooldown <= 0f && dashTimer <= 0f && edgeDst <= flankCombatMaxEdgeDist){
-            boolean dangerNearby = findIncomingBullet(88f, 22f, unit.hitSize * 0.9f + 10f) != null || edgeDst <= 36f;
+            boolean dangerNearby = findIncomingBullet(96f, 24f, unit.hitSize * 0.95f + 12f) != null || edgeDst <= 44f;
             if(dangerNearby){
                 triggerCombatFlankDash(attackTarget, targetRad);
             }
@@ -168,13 +186,26 @@ public class MeleeCommandAI extends CommandAI{
             }
         }
 
-        // Tight edge-to-edge approach
-        float desiredCenterDist = unit.hitSize * 0.5f + targetRad + 5f;
-        if(edgeDst > 10f && edgeDst <= 64f && dashTimer <= 0f){
-            moveTo(attackTarget, desiredCenterDist);
+        // Hold cool standoff distance in Stand mode so Star Platinum punches ahead
+        if(dashTimer <= 0f){
+            float desiredEdge = standAwakened ? standDesiredEdgeDist : baseDesiredEdgeDist;
+            float desiredCenterDist = unit.hitSize * 0.5f + targetRad + desiredEdge;
+
+            if(standAwakened && edgeDst < 16f){
+                // Backstep slightly to preserve Stand distance while looking at target
+                float backAng = Angles.angle(attackTarget.x(), attackTarget.y(), unit.x, unit.y);
+                if(!isPathBlocked(backAng, 16f)){
+                    unit.moveAt(Tmp.v1.trns(backAng, unit.speed() * 0.9f));
+                }
+                unit.lookAt(attackTarget);
+            }else if(edgeDst > desiredEdge + 4f && edgeDst <= 84f){
+                moveTo(attackTarget, desiredCenterDist);
+            }else if(edgeDst <= punchReach){
+                unit.vel.scl(0.82f);
+                unit.lookAt(attackTarget);
+            }
         }
 
-        float punchReach = Math.max(unit.range(), 26f);
         if(!hasStance(UnitStance.holdFire) && edgeDst <= punchReach){
             unit.lookAt(attackTarget);
             unit.aim(attackTarget);
@@ -186,9 +217,8 @@ public class MeleeCommandAI extends CommandAI{
 
     private void tryTimeSkipTeleport(Teamc target, float targetRad){
         float angToTarget = Angles.angle(unit.x, unit.y, target.x(), target.y());
-        float standOff = targetRad + unit.hitSize * 0.5f + 14f;
+        float standOff = targetRad + unit.hitSize * 0.5f + standDesiredEdgeDist;
 
-        // Prefer behind target (DIO stairs style), fallback left/right flank or front
         float baseDir = target instanceof Unit u ? u.rotation + 180f : angToTarget;
         float[] testAngles = {baseDir, baseDir + 45f, baseDir - 45f, angToTarget + 180f};
 
@@ -211,12 +241,18 @@ public class MeleeCommandAI extends CommandAI{
     private void triggerCombatFlankDash(Teamc target, float targetRad){
         float toEnemy = Angles.angle(unit.x, unit.y, target.x(), target.y());
         float sideSign = Mathf.chance(0.5f) ? 1f : -1f;
-        float flankA = toEnemy + sideSign * 56f;
-        float flankB = toEnemy - sideSign * 56f;
-
-        // Scale dash speed & duration with target unit size so Jotaro wraps cleanly around huge units
         float sizeScale = Mathf.clamp(1f + (targetRad - 5.5f) * 0.055f, 0.95f, 2.25f);
-        float chosen = !isPathBlocked(flankA, 28f * sizeScale) ? flankA : (!isPathBlocked(flankB, 28f * sizeScale) ? flankB : Float.NaN);
+        float checkLen = 26f * sizeScale;
+
+        float[] offsets = {sideSign * 56f, -sideSign * 56f, sideSign * 78f, -sideSign * 78f, sideSign * 40f, -sideSign * 40f, sideSign * 96f};
+        float chosen = Float.NaN;
+        for(float off : offsets){
+            float ang = toEnemy + off;
+            if(!isPathBlocked(ang, checkLen)){
+                chosen = ang;
+                break;
+            }
+        }
         if(Float.isNaN(chosen)) return;
 
         dashAngle = chosen;
@@ -238,7 +274,7 @@ public class MeleeCommandAI extends CommandAI{
 
     private void applyBulletWeaveSteering(){
         Position goal = attackTarget != null ? attackTarget : targetPos;
-        if(goal == null || unit.within(goal, 26f)) return;
+        if(goal == null || unit.within(goal, 28f)) return;
 
         Bullet nearestThreat = findIncomingBullet(132f, 34f, unit.hitSize + 18f);
         if(nearestThreat == null) return;
