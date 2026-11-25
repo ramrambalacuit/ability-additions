@@ -26,6 +26,7 @@ import mindustry.graphics.*;
 import mindustry.mod.*;
 import mindustry.type.*;
 import mindustry.ui.*;
+import mindustry.world.blocks.environment.*;
 
 public class JotaroContent{
 
@@ -38,6 +39,7 @@ public class JotaroContent{
     public static StatusEffect sprintBuff;
     public static StatusEffect resolveBuff;
     public static StatusEffect timeStopFreeze;
+    public static StatusEffect cutsceneLock;
     public static BulletType rockProjectile;
 
     public static TextureRegion starPlatinumRegion;
@@ -50,10 +52,12 @@ public class JotaroContent{
     public static Sound standSummonSound = Sounds.none;
     public static Sound teleportSound = Sounds.none;
     public static Sound timeStopSound = Sounds.none;
+    public static Sound ultimateSound = Sounds.none;
 
     private static final IntMap<JotaroRuntime> runtimes = new IntMap<>();
     private static final Seq<TimeStopZone> timeStopZones = new Seq<>();
     private static final IntMap<FrozenBullet> frozenBullets = new IntMap<>();
+    private static final Seq<CutsceneDuel> activeCutscenes = new Seq<>();
     private static boolean eventsHooked = false;
     private static boolean soundsLoaded = false;
 
@@ -66,13 +70,18 @@ public class JotaroContent{
     private static final float ORA_COOLDOWN_TICKS = 600f; // 10.0s cooldown
     private static final float COMBO_RECOVERY_TICKS = 48f; // 0.80s post-6th-hit recovery
     private static final float YARE_INVULN_TICKS = 120f; // 2.00s untargetable/passthrough
-    private static final float ENTRANCE_ROAR_TICKS = 120f; // 2.00s untargetable Stand roar
-    private static final float ENTRANCE_STUN_TICKS = 300f; // 5.00s stun on nearby enemies
+
+    private static final float ENTRANCE_ROAR_TICKS = 300f; // 5.00s slow smooth roar matching 5s stun
+    private static final float ENTRANCE_STUN_TICKS = 300f; // 5.00s stun
     private static final float ENTRANCE_STUN_RADIUS = 128f; // 16 tiles
+
     private static final float TIME_STOP_DURATION = 720f; // 12.0s The World
     private static final float TIME_STOP_COOLDOWN = 1800f; // 30.0s cooldown
     private static final float TIME_STOP_RADIUS = 176f; // 22 tiles
     private static final float CLOCK_VISUAL_TICKS = 150f; // 2.50s visible expanding clock
+
+    private static final int ULTIMATE_M1_REQUIREMENT = 1000;
+    private static final float ULTIMATE_DURATION_TICKS = 1440f; // 24.0s exact cutscene
 
     private static Effect punchArcEffect;
     private static Effect heavyPunchEffect;
@@ -80,8 +89,9 @@ public class JotaroContent{
     private static Effect sprintDustEffect;
     private static Effect oraFistEffect;
     private static Effect rockThrowMuzzle;
-    private static Effect standAwakenEffect;
-    private static Effect standWindEffect;
+    private static Effect downwashSmokeEffect;
+    private static Effect downwashStreakEffect;
+    private static Effect roarRingEffect;
     private static Effect bulletDeflectEffect;
     private static Effect teleportBlinkEffect;
 
@@ -107,7 +117,6 @@ public class JotaroContent{
             hitEffect = Fx.hitBulletColor;
         }};
 
-        // Stand punches originate from Star Platinum's forward position
         MeleeType standNormalPunch = new MeleeType(){{
             shape = MeleeShape.ARC;
             reach = 30f;
@@ -166,7 +175,6 @@ public class JotaroContent{
             hitEffect = Fx.flakExplosion;
         }};
 
-        // ORA Rush stuns enemies until the 3.50s flurry finishes (~52 hits * 40 + 300 = ~2380 dmg)
         MeleeType oraFlurryPunch = new MeleeType(){{
             shape = MeleeShape.ARC;
             reach = 32f;
@@ -179,7 +187,7 @@ public class JotaroContent{
             hitAir = false;
             knockback = 0.6f;
             hitStatus = oraStun;
-            hitStatusDuration = 14f; // Refreshed every 4 ticks so targets stay stunned until ORA ends
+            hitStatusDuration = 14f;
             accentColor = JOTARO_PURPLE;
             swingEffect = oraFistEffect;
             hitEffect = Fx.hitBulletColor;
@@ -220,11 +228,10 @@ public class JotaroContent{
 
             strikeHandler = (unit, mount, ox, oy, angle, weapon) -> {
                 JotaroRuntime rt = getRuntime(unit);
-                if(rt.entranceTimer > 0f || rt.oraActive || rt.comboRecoveryTimer > 0f){
+                if(rt.entranceTimer > 0f || rt.cutsceneActive || rt.oraActive || rt.comboRecoveryTimer > 0f){
                     return;
                 }
 
-                // 6-hit combo: Hits 1-5 normal, Hit 6 Heavy Punch
                 rt.comboIdleTimer = 70f;
                 rt.comboStep = (rt.comboStep + 1) % 6;
 
@@ -250,8 +257,16 @@ public class JotaroContent{
                     playSound(punchSound, strikeX, strikeY, Mathf.random(0.95f, 1.06f), 0.8f);
                 }
 
-                if(hits > 0 && rt.oraCooldown <= 0f && !rt.oraActive){
-                    rt.oraCharge = Math.min(6, rt.oraCharge + 1);
+                if(hits > 0){
+                    if(rt.oraCooldown <= 0f && !rt.oraActive){
+                        rt.oraCharge = Math.min(6, rt.oraCharge + 1);
+                    }
+                    if(!rt.ultimateReady && !rt.cutsceneActive){
+                        rt.ultimateM1Count = Math.min(ULTIMATE_M1_REQUIREMENT, rt.ultimateM1Count + 1);
+                        if(rt.ultimateM1Count >= ULTIMATE_M1_REQUIREMENT){
+                            rt.ultimateReady = true;
+                        }
+                    }
                 }
             };
         }};
@@ -259,7 +274,7 @@ public class JotaroContent{
         jotaro = new UnitType("jotaro-kujo"){
             {
                 localizedName = "Jotaro Kujo";
-                description = "Melee Stand user. Summons Star Platinum temporarily for ORA Rush, awakens at <=85% HP with a 5s stun roar, holds standoff range while Star Platinum punches, deflects bullets, time-skip teleports, and stops time for 12s.";
+                description = "Melee Stand user with 5s downwash Stand awakening, bullet deflection, time-skip teleports, 12s Time Stop, and a 24s 1000-M1 Cutscene Ultimate.";
                 constructor = MechUnit::create;
                 aiController = () -> createJotaroController();
                 controller = u -> createJotaroController();
@@ -299,6 +314,7 @@ public class JotaroContent{
                     new StandOraRushAbility(oraFlurryPunch, oraFinalFinisher),
                     new StarPlatinumAbility(),
                     new TheWorldAbility(),
+                    new UltimateBeatdownAbility(),
                     new YareResolveAbility()
                 );
             }
@@ -339,22 +355,21 @@ public class JotaroContent{
             @Override
             public boolean targetable(Unit unit, Team targeter){
                 JotaroRuntime rt = runtimes.get(unit.id);
-                if(rt != null && (rt.invulnTimer > 0f || rt.entranceTimer > 0f)) return false;
+                if(rt != null && (rt.invulnTimer > 0f || rt.entranceTimer > 0f || rt.cutsceneActive)) return false;
                 return super.targetable(unit, targeter);
             }
 
             @Override
             public boolean hittable(Unit unit){
                 JotaroRuntime rt = runtimes.get(unit.id);
-                if(rt != null && (rt.invulnTimer > 0f || rt.entranceTimer > 0f)) return false;
+                if(rt != null && (rt.invulnTimer > 0f || rt.entranceTimer > 0f || rt.cutsceneActive)) return false;
                 return super.hittable(unit);
             }
 
             @Override
             public boolean killable(Unit unit){
                 JotaroRuntime rt = runtimes.get(unit.id);
-                // ONLY unkillable during active invulnerability windows (never block taking damage down to 45%!)
-                if(rt != null && (rt.invulnTimer > 0f || rt.entranceTimer > 0f)) return false;
+                if(rt != null && (rt.invulnTimer > 0f || rt.entranceTimer > 0f || rt.cutsceneActive)) return false;
                 return super.killable(unit);
             }
 
@@ -382,7 +397,7 @@ public class JotaroContent{
                 }
                 if(unit.controller() instanceof MeleeCommandAI ai){
                     ai.standAwakened = rt.standAwakened;
-                    ai.entrancePaused = rt.entranceTimer > 0f;
+                    ai.entrancePaused = rt.entranceTimer > 0f || rt.cutsceneActive;
                 }
 
                 if(rt.invulnTimer > 0f){
@@ -430,7 +445,6 @@ public class JotaroContent{
 
     private static MeleeCommandAI createJotaroController(){
         MeleeCommandAI ai = new MeleeCommandAI();
-        // Boosted dash gain so quieter dash.ogg cuts through combat cleanly
         ai.onDashAudio = u -> playSound(dashSound, u.x, u.y, Mathf.random(0.95f, 1.1f), 1.45f);
         ai.onTeleportBlink = (u, oldPos) -> {
             teleportBlinkEffect.at(oldPos.getX(), oldPos.getY(), u.rotation, STAND_CYAN);
@@ -442,21 +456,22 @@ public class JotaroContent{
 
     private static Vec2 getStandWorldPos(Unit unit, JotaroRuntime rt, boolean combatForward){
         float bob = Mathf.sin(Time.time, 7f, 1.4f);
-        float forward = combatForward ? (STAND_FORWARD_DIST + rt.standPunchBob * 5f) : -6f;
-        float side = combatForward ? 0f : 7f;
-        float sx = unit.x + Angles.trnsx(unit.rotation, forward) + Angles.trnsx(unit.rotation - 90f, side);
-        float sy = unit.y + Angles.trnsy(unit.rotation, forward) + Angles.trnsy(unit.rotation - 90f, side) + bob;
+        float roarJitter = rt.entranceTimer > 0f ? Mathf.range(0.6f) : 0f;
+        float forward = rt.cutsceneActive ? rt.cutsceneStandDist : (combatForward ? (STAND_FORWARD_DIST + rt.standPunchBob * 5f) : -6f);
+        float side = (combatForward || rt.cutsceneActive) ? 0f : 7f;
+        float sx = unit.x + Angles.trnsx(unit.rotation, forward) + Angles.trnsx(unit.rotation - 90f, side) + roarJitter;
+        float sy = unit.y + Angles.trnsy(unit.rotation, forward) + Angles.trnsy(unit.rotation - 90f, side) + bob + roarJitter;
         return Tmp.v2.set(sx, sy);
     }
 
     private static void drawStandManifestation(Unit unit, JotaroRuntime rt){
-        boolean showStand = rt.standAwakened || rt.oraActive;
+        boolean showStand = rt.standAwakened || rt.oraActive || rt.cutsceneShowStand;
         if(!showStand) return;
 
-        boolean fighting = rt.oraActive || rt.standPunchBob > 0.01f
+        boolean fighting = rt.oraActive || rt.cutsceneShowStand || rt.standPunchBob > 0.01f
             || (unit.controller() instanceof MeleeCommandAI ai && ai.attackTarget != null);
 
-        float appear = rt.standAwakened ? Mathf.clamp(rt.standEntranceAnim) : 1f;
+        float appear = rt.cutsceneShowStand ? 1f : (rt.standAwakened ? Mathf.clamp(rt.standEntranceAnim) : 1f);
         Vec2 spPos = getStandWorldPos(unit, rt, fighting);
         float sx = spPos.x;
         float sy = spPos.y;
@@ -464,16 +479,18 @@ public class JotaroContent{
         float z = Draw.z();
         Draw.z(Layer.groundUnit + 0.08f);
 
-        Draw.color(JOTARO_PURPLE, STAND_CYAN, Mathf.absin(Time.time, 6f, 0.5f));
-        Draw.alpha(0.32f * appear);
-        Fill.circle(sx, sy, 11f * appear);
+        // Smooth Stand spirit glow behind Star Platinum (zero floating rectangles)
+        Draw.color(JOTARO_PURPLE, STAND_CYAN, Mathf.absin(Time.time, 8f, 0.45f));
+        Draw.alpha((rt.entranceTimer > 0f ? 0.45f : 0.28f) * appear);
+        Fill.circle(sx, sy, (rt.entranceTimer > 0f ? 15f : 11f) * appear);
 
         if(starPlatinumRegion != null && starPlatinumRegion.found()){
-            float scl = 0.72f + 0.28f * appear;
+            float roarPulse = rt.entranceTimer > 0f ? (1f + Mathf.absin(Time.time, 4f, 0.08f)) : 1f;
+            float scl = (0.72f + 0.28f * appear) * roarPulse;
             float w = starPlatinumRegion.width * starPlatinumRegion.scl() * scl;
             float h = starPlatinumRegion.height * starPlatinumRegion.scl() * scl;
             Draw.color(Color.white, JOTARO_PURPLE, 0.18f);
-            Draw.alpha(0.90f * appear);
+            Draw.alpha(0.92f * appear);
             Draw.rect(starPlatinumRegion, sx, sy, w, h, unit.rotation - 90f);
         }else{
             Draw.color(JOTARO_PURPLE, STAND_CYAN, 0.4f);
@@ -494,7 +511,7 @@ public class JotaroContent{
         float radius = Mathf.lerp(18f, 132f, Interp.pow2Out.apply(frac));
 
         float z = Draw.z();
-        Draw.z(Layer.flyingUnit + 0.5f); // Drawn above dome & ground so clearly visible
+        Draw.z(Layer.flyingUnit + 0.5f);
 
         Draw.color(JOTARO_GOLD, Color.white, 0.25f);
         Draw.alpha(alpha * 0.92f);
@@ -550,8 +567,14 @@ public class JotaroContent{
         if(eventsHooked) return;
         eventsHooked = true;
 
-        Events.run(Trigger.update, JotaroContent::updateTimeStopWorld);
-        Events.run(Trigger.draw, JotaroContent::drawTimeStopDomes);
+        Events.run(Trigger.update, () -> {
+            updateTimeStopWorld();
+            updateCutscenes();
+        });
+        Events.run(Trigger.draw, () -> {
+            drawTimeStopDomes();
+            drawCutsceneOverlays();
+        });
 
         Events.on(UnitDamageEvent.class, e -> {
             if(e.unit == null) return;
@@ -580,7 +603,190 @@ public class JotaroContent{
             runtimes.clear();
             timeStopZones.clear();
             frozenBullets.clear();
+            activeCutscenes.clear();
         });
+    }
+
+    private static void updateCutscenes(){
+        if(Vars.state.isPaused() || activeCutscenes.size == 0) return;
+
+        for(int i = activeCutscenes.size - 1; i >= 0; i--){
+            CutsceneDuel duel = activeCutscenes.get(i);
+            Unit jotaroUnit = duel.jotaro;
+            Unit victim = duel.victim;
+            JotaroRuntime rt = duel.rt;
+
+            if(jotaroUnit == null || jotaroUnit.dead || !jotaroUnit.isAdded() || victim == null || victim.dead || !victim.isAdded()){
+                if(rt != null){
+                    rt.cutsceneActive = false;
+                    rt.cutsceneShowStand = false;
+                }
+                activeCutscenes.remove(i);
+                continue;
+            }
+
+            float prevElapsed = duel.elapsed;
+            duel.elapsed += Time.delta;
+            float sec = duel.elapsed / 60f;
+            float prevSec = prevElapsed / 60f;
+
+            // 1. Protect victim from outside damage & interference while locking them in place
+            victim.health = Math.max(1f, duel.lockedVictimHealth);
+            victim.dead = false;
+            victim.apply(cutsceneLock, 12f);
+
+            for(Bullet b : Groups.bullet){
+                if(b == null || !b.isAdded()) continue;
+                if(b.within(jotaroUnit, 64f) || b.within(victim, 64f)){
+                    b.remove();
+                }
+            }
+
+            float faceAng = Angles.angle(jotaroUnit.x, jotaroUnit.y, victim.x, victim.y);
+            jotaroUnit.rotation = faceAng;
+            jotaroUnit.vel.setZero();
+
+            // Keep Star Platinum facing/positioned cleanly during cutscene
+            if(sec < 23.0f){
+                victim.vel.setZero();
+            }
+
+            // Timeline choreography:
+            // 0s - 1s: Jotaro talks
+            if(sec < 1.0f){
+                rt.cutsceneShowStand = false;
+                rt.cutsceneStandDist = 14f;
+            }
+            // 1s - 5s: Star Platinum spawns and steps forward
+            else if(sec < 5.0f){
+                if(prevSec < 1.0f){
+                    roarRingEffect.at(jotaroUnit.x, jotaroUnit.y, faceAng, JOTARO_PURPLE);
+                    Effect.shake(2.5f, 12f, jotaroUnit);
+                }
+                rt.cutsceneShowStand = true;
+                float t = Mathf.clamp((sec - 1.0f) / 4.0f);
+                rt.cutsceneStandDist = Mathf.lerp(12f, 22f, t);
+            }
+            // 5.0s: 1 punch + small knockback
+            else if(sec < 5.4f){
+                if(prevSec < 5.0f){
+                    rt.cutsceneStandDist = 24f;
+                    rt.standPunchBob = 1f;
+                    float kx = Angles.trnsx(faceAng, 18f);
+                    float ky = Angles.trnsy(faceAng, 18f);
+                    victim.set(victim.x + kx, victim.y + ky);
+                    jotaroUnit.set(jotaroUnit.x + kx * 0.85f, jotaroUnit.y + ky * 0.85f);
+                    heavyPunchEffect.at(victim.x, victim.y, faceAng, JOTARO_PURPLE);
+                    Effect.shake(3.0f, 10f, victim);
+                }
+            }
+            // 5.4s - 15.0s: First big ORA barrage!
+            else if(sec < 15.0f){
+                runCutsceneBarrageStep(duel, jotaroUnit, victim, rt, faceAng, 5f);
+            }
+            // 15.0s - 16.0s: Brief tension beat
+            else if(sec < 16.0f){
+                rt.standPunchBob = 0f;
+            }
+            // 16.0s - 17.0s: 1 punch again!
+            else if(sec < 17.0f){
+                if(prevSec < 16.0f){
+                    rt.standPunchBob = 1f;
+                    heavyPunchEffect.at(victim.x, victim.y, faceAng, JOTARO_GOLD);
+                    Effect.shake(3.5f, 10f, victim);
+                }
+            }
+            // 17.0s - 18.0s: Second barrage!
+            else if(sec < 18.0f){
+                runCutsceneBarrageStep(duel, jotaroUnit, victim, rt, faceAng, 4f);
+            }
+            // 18.0s - 19.0s: Brief windup
+            else if(sec < 19.0f){
+                rt.standPunchBob = 0f;
+            }
+            // 19.0s - 23.0s: Final barrage again!
+            else if(sec < 23.0f){
+                runCutsceneBarrageStep(duel, jotaroUnit, victim, rt, faceAng, 3.5f);
+            }
+            // 23.0s - 24.0s: Final hit sends enemy flying and instant kills!
+            else if(sec < 24.0f){
+                if(prevSec < 23.0f){
+                    rt.standPunchBob = 1.4f;
+                    heavyPunchEffect.at(victim.x, victim.y, faceAng, JOTARO_GOLD);
+                    roarRingEffect.at(victim.x, victim.y, faceAng, JOTARO_GOLD);
+                    Effect.shake(8.0f, 24f, victim);
+                    duel.launchAngle = faceAng;
+                }
+                // Send victim flying backward with smoke trail
+                victim.set(
+                    victim.x + Angles.trnsx(duel.launchAngle, 6.2f * Time.delta),
+                    victim.y + Angles.trnsy(duel.launchAngle, 6.2f * Time.delta)
+                );
+                if(Mathf.chanceDelta(0.7f)){
+                    downwashSmokeEffect.at(victim.x, victim.y, duel.launchAngle + 180f, Color.gray);
+                }
+            }
+            // 24.0s: Instant kill any real enemy regardless of HP
+            else{
+                victim.unapply(cutsceneLock);
+                if(victim.type.killable(victim)){
+                    victim.health = 0f;
+                    victim.kill();
+                    if(!victim.dead){
+                        victim.damagePierce(victim.maxHealth * 100f);
+                    }
+                }
+                Fx.massiveExplosion.at(victim.x, victim.y);
+                rt.cutsceneActive = false;
+                rt.cutsceneShowStand = false;
+                activeCutscenes.remove(i);
+            }
+        }
+    }
+
+    private static void runCutsceneBarrageStep(CutsceneDuel duel, Unit jotaroUnit, Unit victim, JotaroRuntime rt, float faceAng, float interval){
+        // Keep Star Platinum snapped close to victim during barrage
+        float targetSep = victim.hitSize * 0.5f + 26f;
+        float dist = jotaroUnit.dst(victim);
+        if(dist > targetSep + 6f){
+            jotaroUnit.set(
+                Mathf.lerp(jotaroUnit.x, victim.x - Angles.trnsx(faceAng, targetSep), 0.25f),
+                Mathf.lerp(jotaroUnit.y, victim.y - Angles.trnsy(faceAng, targetSep), 0.25f)
+            );
+        }
+        rt.cutsceneStandDist = Math.max(18f, jotaroUnit.dst(victim) - victim.hitSize * 0.4f);
+
+        duel.barrageTick -= Time.delta;
+        if(duel.barrageTick <= 0f){
+            duel.barrageTick = interval;
+            rt.standPunchBob = 0.85f;
+            Vec2 spPos = getStandWorldPos(jotaroUnit, rt, true);
+            oraFistEffect.at(spPos.x, spPos.y, faceAng);
+            Fx.hitBulletColor.at(victim.x + Mathf.range(victim.hitSize * 0.35f), victim.y + Mathf.range(victim.hitSize * 0.35f), faceAng, JOTARO_PURPLE);
+            Effect.shake(1.1f, 4f, victim);
+        }
+    }
+
+    private static void drawCutsceneOverlays(){
+        if(Vars.headless || activeCutscenes.size == 0) return;
+
+        float oldZ = Draw.z();
+        Draw.z(Layer.groundUnit - 0.08f);
+        for(int i = 0; i < activeCutscenes.size; i++){
+            CutsceneDuel duel = activeCutscenes.get(i);
+            if(duel.jotaro == null || duel.victim == null) continue;
+            float cx = (duel.jotaro.x + duel.victim.x) * 0.5f;
+            float cy = (duel.jotaro.y + duel.victim.y) * 0.5f;
+
+            Draw.color(0.05f, 0.02f, 0.12f, 0.55f);
+            Fill.circle(cx, cy, 180f);
+            Draw.color(JOTARO_PURPLE, JOTARO_GOLD, Mathf.absin(Time.time, 5f, 1f));
+            Draw.alpha(0.55f);
+            Lines.stroke(2.5f);
+            Lines.circle(cx, cy, 180f);
+        }
+        Draw.color();
+        Draw.z(oldZ);
     }
 
     private static void updateTimeStopWorld(){
@@ -594,7 +800,6 @@ public class JotaroContent{
         for(int i = timeStopZones.size - 1; i >= 0; i--){
             TimeStopZone zone = timeStopZones.get(i);
             zone.timer -= Time.delta;
-            // Anchored in place where cast (does NOT follow Jotaro!)
 
             Units.nearbyEnemies(zone.team, zone.x, zone.y, zone.radius, u -> {
                 if(u != null && !u.dead){
@@ -688,6 +893,7 @@ public class JotaroContent{
         standSummonSound = loadSoundSync("stand-summon", false);
         teleportSound = loadSoundSync("teleport", false);
         timeStopSound = loadSoundSync("time-stop", false);
+        ultimateSound = loadSoundSync("ultimate", false);
     }
 
     private static Sound loadSoundSync(String baseName, boolean warnIfMissing){
@@ -819,6 +1025,15 @@ public class JotaroContent{
             show = true;
         }};
 
+        cutsceneLock = new StatusEffect("jotaro-cutscene-lock"){{
+            disarm = true;
+            speedMultiplier = 0f;
+            reloadMultiplier = 0f;
+            dragMultiplier = 99f;
+            color = JOTARO_GOLD;
+            show = false;
+        }};
+
         punchArcEffect = new Effect(16f, e -> {
             float fx = e.x + Angles.trnsx(e.rotation, 8f + e.fin() * 10f);
             float fy = e.y + Angles.trnsy(e.rotation, 8f + e.fin() * 10f);
@@ -904,32 +1119,35 @@ public class JotaroContent{
             Lines.circle(e.x, e.y, 4f + e.fin() * 7f);
         }).layer(Layer.groundUnit - 0.05f);
 
-        standAwakenEffect = new Effect(46f, e -> {
-            Draw.color(JOTARO_PURPLE, STAND_CYAN, e.fin());
-            Lines.stroke(4.8f * e.fout());
-            Lines.circle(e.x, e.y, 10f + e.fin() * 118f);
-            Draw.color(JOTARO_GOLD, Color.white, 0.35f);
-            Lines.stroke(2.8f * e.fout());
-            Lines.circle(e.x, e.y, 6f + e.fin() * 64f);
+        // Helicopter-on-grass rolling smoke puff strictly under units on debris layer
+        downwashSmokeEffect = new Effect(62f, e -> {
+            float dist = Interp.pow2Out.apply(e.fin()) * 58f;
+            float px = e.x + Angles.trnsx(e.rotation, dist);
+            float py = e.y + Angles.trnsy(e.rotation, dist);
+            float rad = Mathf.lerp(2.5f, 11.5f, Interp.pow2Out.apply(e.fin()));
+            Draw.color(e.color, Color.lightGray, 0.35f);
+            Draw.alpha(0.42f * e.fout() * Mathf.clamp(e.fin() * 4f));
+            Fill.circle(px, py, rad);
+        }).layer(Layer.debris);
 
-            for(int i = 0; i < 12; i++){
-                float a = i * 30f + e.fin() * 95f;
-                float wx = e.x + Angles.trnsx(a, 12f + e.fin() * 92f);
-                float wy = e.y + Angles.trnsy(a, 12f + e.fin() * 92f);
-                Lines.lineAngle(wx, wy, a + 45f, 14f * e.fout());
-            }
-        });
+        // Tapered pointed ground wind/grass streak (zero rectangles)
+        downwashStreakEffect = new Effect(44f, e -> {
+            float dist = 10f + Interp.pow2Out.apply(e.fin()) * 72f;
+            float px = e.x + Angles.trnsx(e.rotation, dist);
+            float py = e.y + Angles.trnsy(e.rotation, dist);
+            Draw.color(e.color, Color.white, 0.3f);
+            Draw.alpha(0.45f * e.fout());
+            Drawf.tri(px, py, 2.6f * e.fout(), 13f * (0.5f + e.fin() * 0.6f), e.rotation);
+        }).layer(Layer.debris + 0.02f);
 
-        standWindEffect = new Effect(24f, e -> {
-            float a = e.rotation + e.fin() * 70f;
-            float r = 10f + e.fin() * 26f;
-            float wx = e.x + Angles.trnsx(a, r);
-            float wy = e.y + Angles.trnsy(a, r);
-            Draw.color(STAND_CYAN, JOTARO_PURPLE, e.fin());
-            Draw.alpha(0.58f * e.fout());
-            Lines.stroke(1.9f * e.fout());
-            Lines.lineAngle(wx, wy, a + 75f, 10f * e.fout());
-        }).layer(Layer.groundUnit - 0.06f);
+        // Slow smooth roar pressure ring
+        roarRingEffect = new Effect(54f, e -> {
+            float r = Mathf.lerp(14f, 134f, Interp.pow2Out.apply(e.fin()));
+            Draw.color(e.color, Color.white, 0.25f);
+            Draw.alpha(0.75f * e.fout());
+            Lines.stroke(3.8f * e.fout() + 0.6f);
+            Lines.circle(e.x, e.y, r);
+        }).layer(Layer.groundUnit - 0.04f);
 
         bulletDeflectEffect = new Effect(16f, e -> {
             Draw.color(JOTARO_GOLD, STAND_CYAN, 0.5f);
@@ -1089,7 +1307,7 @@ public class JotaroContent{
         @Override
         public void update(Unit unit){
             JotaroRuntime rt = getRuntime(unit);
-            if(rt.entranceTimer > 0f) return;
+            if(rt.entranceTimer > 0f || rt.cutsceneActive) return;
 
             if(rt.rockCooldown > 0f){
                 rt.rockCooldown = Math.max(0f, rt.rockCooldown - Time.delta);
@@ -1110,7 +1328,7 @@ public class JotaroContent{
         }
     }
 
-    // Ability 3: Stand ORA ORA Rush (stuns enemies until 3.50s finishes!)
+    // Ability 3: Stand ORA ORA Rush (stuns enemies until 3.50s finishes)
     public static class StandOraRushAbility extends Ability{
         private final MeleeType flurryType;
         private final MeleeType finisherType;
@@ -1147,7 +1365,7 @@ public class JotaroContent{
         @Override
         public void update(Unit unit){
             JotaroRuntime rt = getRuntime(unit);
-            if(rt.entranceTimer > 0f) return;
+            if(rt.entranceTimer > 0f || rt.cutsceneActive) return;
 
             if(rt.oraCooldown > 0f){
                 rt.oraCooldown = Math.max(0f, rt.oraCooldown - Time.delta);
@@ -1172,7 +1390,7 @@ public class JotaroContent{
             rt.oraTickTimer -= Time.delta;
 
             if(rt.oraTickTimer <= 0f){
-                rt.oraTickTimer = 4f; // ~52 hits across 3.50s
+                rt.oraTickTimer = 4f;
                 Vec2 spPos = getStandWorldPos(unit, rt, true);
                 rt.standPunchBob = 0.8f;
                 flurryType.execute(unit, spPos.x, spPos.y, unit.rotation);
@@ -1189,7 +1407,7 @@ public class JotaroContent{
         }
     }
 
-    // Ability 4: Star Platinum Awakening (2s untargetable roar + 5s enemy stun) & Bullet Deflect
+    // Ability 4: Star Platinum Awakening (5s Helicopter-Downwash Roar + 5s Push/Stun) & Bullet Deflect
     public static class StarPlatinumAbility extends Ability{
         @Override
         public String localized(){
@@ -1198,26 +1416,30 @@ public class JotaroContent{
 
         @Override
         public void addStats(Table t){
-            t.add("[lightgray]At <=85% HP, pauses untargetable for 2s to roar and stun nearby enemies for 5s. Punches ahead while Jotaro keeps standoff distance and deflects ~88% of incoming projectiles back as friendly bullets.[]").wrap().width(320f);
+            t.add("[lightgray]Awakens at <=85% HP, stopping untargetable for a slow 5s roar with ground downwash smoke that pushes and stuns nearby enemies for 5s. Deflects ~88% of incoming projectiles back as friendly bullets.[]").wrap().width(320f);
         }
 
         @Override
         public void update(Unit unit){
             JotaroRuntime rt = getRuntime(unit);
 
-            if(!rt.standAwakened && unit.healthf() <= 0.85f){
+            if(!rt.standAwakened && !rt.cutsceneActive && unit.healthf() <= 0.85f){
                 rt.standAwakened = true;
                 rt.standEntranceAnim = 0f;
                 rt.entranceTimer = ENTRANCE_ROAR_TICKS;
+                rt.entranceRingTimer = 0f;
 
-                standAwakenEffect.at(unit.x, unit.y, unit.rotation);
-                Effect.shake(6.5f, 30f, unit);
-                playSound(standSummonSound, unit.x, unit.y, 1f, 1.25f);
+                roarRingEffect.at(unit.x, unit.y, 0f, JOTARO_PURPLE);
+                Effect.shake(7.0f, 36f, unit);
+                playSound(standSummonSound, unit.x, unit.y, 1f, 1.3f);
 
-                // Roar stuns all nearby enemies for 5.0 seconds
+                // Initial strong outward push + 5.0s stun
                 Units.nearbyEnemies(unit.team, unit.x, unit.y, ENTRANCE_STUN_RADIUS, enemy -> {
                     if(enemy != null && !enemy.dead){
                         enemy.apply(entranceStun, ENTRANCE_STUN_TICKS);
+                        float ang = enemy.within(unit, 2f) ? Mathf.random(360f) : Angles.angle(unit.x, unit.y, enemy.x, enemy.y);
+                        float sizeScale = Mathf.clamp(16f / Math.max(8f, enemy.hitSize), 0.35f, 1.4f);
+                        enemy.impulse(Angles.trnsx(ang, 185f * sizeScale), Angles.trnsy(ang, 185f * sizeScale));
                     }
                 });
             }
@@ -1225,14 +1447,45 @@ public class JotaroContent{
             if(!rt.standAwakened) return;
 
             if(rt.standEntranceAnim < 1f){
-                rt.standEntranceAnim = Math.min(1f, rt.standEntranceAnim + Time.delta / 28f);
+                // Snap appear cleanly in ~0.25s
+                rt.standEntranceAnim = Math.min(1f, rt.standEntranceAnim + Time.delta / 15f);
             }
 
-            if(Mathf.chanceDelta(rt.entranceTimer > 0f ? 0.65f : 0.28f)){
-                standWindEffect.at(unit.x, unit.y, Mathf.random(360f));
+            // 5.0s Helicopter-on-Grass Ground Downwash Roar
+            if(rt.entranceTimer > 0f){
+                Floor floor = unit.floorOn();
+                Color terrainDust = floor != null ? Tmp.c1.set(floor.mapColor).lerp(Color.lightGray, 0.35f).cpy() : Color.lightGray;
+
+                if(Mathf.chanceDelta(0.75f)){
+                    float a = Mathf.random(360f);
+                    downwashSmokeEffect.at(unit.x + Angles.trnsx(a, 5f), unit.y + Angles.trnsy(a, 5f), a, terrainDust);
+                }
+                if(Mathf.chanceDelta(0.55f)){
+                    float a = Mathf.random(360f);
+                    downwashStreakEffect.at(unit.x, unit.y, a, terrainDust);
+                }
+
+                rt.entranceRingTimer -= Time.delta;
+                if(rt.entranceRingTimer <= 0f){
+                    rt.entranceRingTimer = 28f; // smooth slow shockwave every ~0.47s
+                    roarRingEffect.at(unit.x, unit.y, 0f, Mathf.chance(0.5f) ? JOTARO_PURPLE : JOTARO_GOLD);
+                    Effect.shake(2.6f, 14f, unit);
+                }
+
+                // Gentle continuous wind push away during the 5s roar
+                Units.nearbyEnemies(unit.team, unit.x, unit.y, ENTRANCE_STUN_RADIUS, enemy -> {
+                    if(enemy != null && !enemy.dead){
+                        float ang = enemy.within(unit, 2f) ? Mathf.random(360f) : Angles.angle(unit.x, unit.y, enemy.x, enemy.y);
+                        float sizeScale = Mathf.clamp(14f / Math.max(8f, enemy.hitSize), 0.3f, 1.2f);
+                        enemy.impulse(Angles.trnsx(ang, 6.5f * sizeScale * Time.delta), Angles.trnsy(ang, 6.5f * sizeScale * Time.delta));
+                    }
+                });
+                return;
             }
 
-            // Passive Bullet Deflect: flip enemy projectiles onto Jotaro's team and reflect back!
+            if(rt.cutsceneActive) return;
+
+            // Passive Bullet Deflect: flip enemy projectiles onto Jotaro's team and fire back
             if(rt.bulletCatchGrace > 0f){
                 rt.bulletCatchGrace = Math.max(0f, rt.bulletCatchGrace - Time.delta);
                 return;
@@ -1305,11 +1558,10 @@ public class JotaroContent{
             if(rt.timeStopActiveTimer > 0f){
                 rt.timeStopActiveTimer = Math.max(0f, rt.timeStopActiveTimer - Time.delta);
             }else if(rt.timeStopCooldown > 0f){
-                // 30s cooldown counts down AFTER the 12s Time Stop finishes
                 rt.timeStopCooldown = Math.max(0f, rt.timeStopCooldown - Time.delta);
             }
 
-            if(!rt.standAwakened || rt.entranceTimer > 0f || rt.timeStopCooldown > 0f || rt.timeStopActiveTimer > 0f) return;
+            if(!rt.standAwakened || rt.entranceTimer > 0f || rt.cutsceneActive || rt.timeStopCooldown > 0f || rt.timeStopActiveTimer > 0f) return;
 
             Unit threat = Units.closestEnemy(unit.team, unit.x, unit.y, 128f, u -> !u.dead && !u.isFlying() && u.hittable());
             if(threat == null) return;
@@ -1334,7 +1586,58 @@ public class JotaroContent{
         }
     }
 
-    // Ability 6: Yare Yare Daze (Permanent Resolve <= 45% HP + 2s untargetable/passthrough burst)
+    // Ability 6: 24-Second 1000-M1 Cutscene Ultimate (Instant Kill)
+    public static class UltimateBeatdownAbility extends Ability{
+        @Override
+        public String localized(){
+            return "Ultimate: 24s ORA Beatdown";
+        }
+
+        @Override
+        public void addStats(Table t){
+            t.add("[lightgray]Reaching 1000 M1 hits charges an unstoppable 24s 1v1 Cutscene Ultimate (saved until a ground enemy comes near) that sends the target flying and instant-kills any enemy.[]").wrap().width(320f);
+        }
+
+        @Override
+        public void displayBars(Unit unit, Table bars){
+            JotaroRuntime rt = getRuntime(unit);
+            bars.add(new Bar(
+                () -> rt.cutsceneActive ? "BEATDOWN ULTIMATE!"
+                    : rt.ultimateReady ? "ULTIMATE READY!"
+                    : "Ultimate: " + rt.ultimateM1Count + "/" + ULTIMATE_M1_REQUIREMENT,
+                () -> rt.cutsceneActive || rt.ultimateReady ? JOTARO_GOLD : JOTARO_PURPLE,
+                () -> rt.cutsceneActive ? 1f : Mathf.clamp((float)rt.ultimateM1Count / ULTIMATE_M1_REQUIREMENT)
+            )).row();
+        }
+
+        @Override
+        public void update(Unit unit){
+            JotaroRuntime rt = getRuntime(unit);
+            if(!rt.ultimateReady || rt.cutsceneActive || rt.entranceTimer > 0f) return;
+
+            Unit victim = Units.closestEnemy(unit.team, unit.x, unit.y, 72f, u -> !u.dead && !u.isFlying() && u.hittable());
+            if(victim == null) return;
+
+            // Lock into unstoppable 24s Cutscene!
+            rt.ultimateReady = false;
+            rt.ultimateM1Count = 0;
+            rt.oraActive = false;
+            rt.cutsceneActive = true;
+            rt.cutsceneShowStand = false;
+
+            CutsceneDuel duel = new CutsceneDuel();
+            duel.jotaro = unit;
+            duel.victim = victim;
+            duel.rt = rt;
+            duel.lockedVictimHealth = Math.max(1f, victim.health);
+            duel.elapsed = 0f;
+            activeCutscenes.add(duel);
+
+            playSound(ultimateSound, unit.x, unit.y, 1f, 1.35f);
+        }
+    }
+
+    // Ability 7: Yare Yare Daze (Permanent Resolve <= 45% HP + 2s untargetable/passthrough burst)
     public static class YareResolveAbility extends Ability{
         @Override
         public String localized(){
@@ -1378,6 +1681,16 @@ public class JotaroContent{
         float savedTime;
     }
 
+    private static class CutsceneDuel{
+        Unit jotaro;
+        Unit victim;
+        JotaroRuntime rt;
+        float lockedVictimHealth;
+        float elapsed;
+        float barrageTick = 0f;
+        float launchAngle = 0f;
+    }
+
     private static class JotaroRuntime{
         int comboStep = 0;
         float comboIdleTimer = 0f;
@@ -1393,6 +1706,7 @@ public class JotaroContent{
         boolean standAwakened = false;
         float standEntranceAnim = 0f;
         float entranceTimer = 0f;
+        float entranceRingTimer = 0f;
         float standPunchBob = 0f;
         float bulletCatchGrace = 0f;
 
@@ -1402,8 +1716,14 @@ public class JotaroContent{
         float clockOriginX = 0f;
         float clockOriginY = 0f;
 
+        int ultimateM1Count = 0;
+        boolean ultimateReady = false;
+        boolean cutsceneActive = false;
+        boolean cutsceneShowStand = false;
+        float cutsceneStandDist = 18f;
+
         float resolveCooldown = 0f;
         float invulnTimer = 0f;
         boolean resolveTriggeredBelow = false;
     }
-}
+    }
