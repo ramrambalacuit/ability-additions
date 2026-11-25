@@ -80,7 +80,7 @@ public class MeleeCommandAI extends CommandAI{
         if(dodgeCooldown > 0f) dodgeCooldown = Math.max(0f, dodgeCooldown - Time.delta);
         if(threatAlertTimer > 0f) threatAlertTimer = Math.max(0f, threatAlertTimer - Time.delta);
 
-        // Freeze movement/attacks cleanly during Stand Awakening roar
+        // Freeze normal AI cleanly during 5s Stand Entrance roar or 24s Ultimate Cutscene
         if(entrancePaused){
             dashTimer = 0f;
             sprinting = false;
@@ -192,7 +192,6 @@ public class MeleeCommandAI extends CommandAI{
             float desiredCenterDist = unit.hitSize * 0.5f + targetRad + desiredEdge;
 
             if(standAwakened && edgeDst < 16f){
-                // Backstep slightly to preserve Stand distance while looking at target
                 float backAng = Angles.angle(attackTarget.x(), attackTarget.y(), unit.x, unit.y);
                 if(!isPathBlocked(backAng, 16f)){
                     unit.moveAt(Tmp.v1.trns(backAng, unit.speed() * 0.9f));
