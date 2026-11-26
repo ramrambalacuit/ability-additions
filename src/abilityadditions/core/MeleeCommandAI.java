@@ -43,7 +43,7 @@ public class MeleeCommandAI extends CommandAI{
 
     public boolean sprinting = false;
     public boolean standAwakened = false;
-    public boolean standActiveOut = false; // true when Stand awakened OR Base ORA Rush popped Stand out
+    public boolean standActiveOut = false; // true when Stand awakened OR Base ORA/Inhale popped Stand out
     public boolean entrancePaused = false;
     public boolean activeFlankDash = false;
     public @Nullable Teamc flankTarget = null;
@@ -128,7 +128,7 @@ public class MeleeCommandAI extends CommandAI{
             applyBulletWeaveSteering();
         }
 
-        // Dynamic range: 28px in Base mode -> 54px whenever Stand is out (Stand Mode OR Base ORA Rush)
+        // Dynamic range: 28px in Base mode -> 54px whenever Stand is out
         float punchReach = standActiveOut ? 54f : 28f;
 
         if(attackTarget == null){
@@ -186,7 +186,7 @@ public class MeleeCommandAI extends CommandAI{
             }
         }
 
-        // Auto-backstep & standoff whenever Star Platinum is out (Stand Mode OR Base ORA Rush)
+        // Auto-backstep & standoff whenever Star Platinum is out
         if(dashTimer <= 0f){
             float desiredEdge = standActiveOut ? standDesiredEdgeDist : baseDesiredEdgeDist;
             float desiredCenterDist = unit.hitSize * 0.5f + targetRad + desiredEdge;
@@ -352,4 +352,4 @@ public class MeleeCommandAI extends CommandAI{
         }
         return false;
     }
-}
+                    }
