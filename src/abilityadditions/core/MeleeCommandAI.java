@@ -9,6 +9,7 @@ import mindustry.ai.*;
 import mindustry.ai.types.*;
 import mindustry.entities.*;
 import mindustry.entities.units.*;
+import mindustry.game.*;
 import mindustry.gen.*;
 import mindustry.world.*;
 
@@ -43,7 +44,7 @@ public class MeleeCommandAI extends CommandAI{
 
     public boolean sprinting = false;
     public boolean standAwakened = false;
-    public boolean standActiveOut = false; // true when Stand awakened OR Base ORA/Inhale popped Stand out
+    public boolean standActiveOut = false;
     public boolean entrancePaused = false;
     public boolean activeFlankDash = false;
     public @Nullable Teamc flankTarget = null;
@@ -67,7 +68,7 @@ public class MeleeCommandAI extends CommandAI{
             float scanRange = threatAlertTimer > 0f ? detectThreatRange * 1.35f : detectThreatRange;
             Teamc threat = Units.closestTarget(unit.team, unit.x, unit.y, scanRange,
                 u -> !u.dead && !u.isFlying() && u.hittable(),
-                b -> b.block.targetable && threatAlertTimer > 0f
+                b -> b.block.targetable && (threatAlertTimer > 0f || b.within(unit, 64f))
             );
             if(threat != null){
                 attackTarget = threat;
@@ -128,28 +129,36 @@ public class MeleeCommandAI extends CommandAI{
             applyBulletWeaveSteering();
         }
 
-        // Dynamic range: 28px in Base mode -> 54px whenever Stand is out
         float punchReach = standActiveOut ? 54f : 28f;
 
         if(attackTarget == null){
             sprinting = false;
 
-            Unit closeThreat = !hasStance(UnitStance.holdFire)
-                ? Units.closestEnemy(unit.team, unit.x, unit.y, punchReach, u -> !u.dead && !u.isFlying() && u.hittable())
-                : null;
+            if(!hasStance(UnitStance.holdFire)){
+                Unit closeThreat = Units.closestEnemy(unit.team, unit.x, unit.y, punchReach, u -> !u.dead && !u.isFlying() && u.hittable());
+                if(closeThreat != null){
+                    unit.lookAt(closeThreat);
+                    unit.aim(closeThreat);
+                    unit.controlWeapons(true, true);
+                    return;
+                }
 
-            if(closeThreat != null){
-                unit.lookAt(closeThreat);
-                unit.aim(closeThreat);
-                unit.controlWeapons(true, true);
-            }else{
-                stopAttacking();
+                // Also punch blocking walls or buildings right in reach
+                Building closeBuild = findClosestEnemyBuilding(punchReach);
+                if(closeBuild != null){
+                    unit.lookAt(closeBuild);
+                    unit.aim(closeBuild);
+                    unit.controlWeapons(true, true);
+                    return;
+                }
             }
+            stopAttacking();
             return;
         }
 
         float targetRad = attackTarget instanceof Sized s ? s.hitSize() * 0.5f : 0f;
         float edgeDst = unit.dst(attackTarget) - unit.hitSize * 0.5f - targetRad;
+        boolean targetIsBuilding = attackTarget instanceof Building;
 
         float sprintStop = standActiveOut ? 44f : sprintStopEdgeDist;
         float sprintStart = standActiveOut ? 56f : sprintStartEdgeDist;
@@ -160,8 +169,8 @@ public class MeleeCommandAI extends CommandAI{
             sprinting = false;
         }
 
-        // Combat Flank Dodge Dash (3s CD, scaled by target size)
-        if(dodgeCooldown <= 0f && dashTimer <= 0f && edgeDst <= flankCombatMaxEdgeDist){
+        // Combat Flank Dodge Dash (units only; don't flank stationary walls)
+        if(!targetIsBuilding && dodgeCooldown <= 0f && dashTimer <= 0f && edgeDst <= flankCombatMaxEdgeDist){
             boolean dangerNearby = findIncomingBullet(96f, 24f, unit.hitSize * 0.95f + 12f) != null || edgeDst <= 48f;
             if(dangerNearby){
                 triggerCombatFlankDash(attackTarget, targetRad);
@@ -186,12 +195,12 @@ public class MeleeCommandAI extends CommandAI{
             }
         }
 
-        // Auto-backstep & standoff whenever Star Platinum is out
+        // Auto-backstep & standoff against enemy units (stay planted to smash walls/buildings)
         if(dashTimer <= 0f){
-            float desiredEdge = standActiveOut ? standDesiredEdgeDist : baseDesiredEdgeDist;
+            float desiredEdge = (standActiveOut && !targetIsBuilding) ? standDesiredEdgeDist : baseDesiredEdgeDist;
             float desiredCenterDist = unit.hitSize * 0.5f + targetRad + desiredEdge;
 
-            if(standActiveOut && edgeDst < 30f){
+            if(standActiveOut && !targetIsBuilding && edgeDst < 30f){
                 float backAng = Angles.angle(attackTarget.x(), attackTarget.y(), unit.x, unit.y);
                 if(!isPathBlocked(backAng, 16f)){
                     unit.moveAt(Tmp.v1.trns(backAng, unit.speed() * 1.15f));
@@ -210,8 +219,35 @@ public class MeleeCommandAI extends CommandAI{
             unit.aim(attackTarget);
             unit.controlWeapons(true, true);
         }else{
+            // If blocked by an enemy wall while walking to attackTarget, smash the blocking wall!
+            if(!hasStance(UnitStance.holdFire)){
+                Building blocker = findClosestEnemyBuilding(punchReach);
+                if(blocker != null){
+                    unit.lookAt(blocker);
+                    unit.aim(blocker);
+                    unit.controlWeapons(true, true);
+                    return;
+                }
+            }
             stopAttacking();
         }
+    }
+
+    private @Nullable Building findClosestEnemyBuilding(float maxEdgeDist){
+        Building best = null;
+        float bestDist = maxEdgeDist;
+        for(Team t : Team.all){
+            if(t == unit.team || t.data().buildings.isEmpty()) continue;
+            for(Building b : t.data().buildings){
+                if(b == null || !b.isAdded() || b.dead || !b.block.targetable) continue;
+                float edgeDst = unit.dst(b) - unit.hitSize * 0.5f - b.hitSize() * 0.5f;
+                if(edgeDst <= bestDist){
+                    bestDist = edgeDst;
+                    best = b;
+                }
+            }
+        }
+        return best;
     }
 
     private void tryTimeSkipTeleport(Teamc target, float targetRad){
@@ -352,4 +388,4 @@ public class MeleeCommandAI extends CommandAI{
         }
         return false;
     }
-                    }
+                } 
