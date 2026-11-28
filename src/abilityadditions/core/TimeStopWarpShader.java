@@ -5,7 +5,6 @@ import arc.graphics.*;
 import arc.graphics.g2d.*;
 import arc.graphics.gl.*;
 import arc.math.*;
-import arc.struct.*;
 import arc.util.*;
 import mindustry.*;
 import mindustry.game.EventType.*;
@@ -14,6 +13,7 @@ import mindustry.graphics.*;
 public class TimeStopWarpShader{
 
     private static final int MAX_ZONES = 2;
+    private static final float RESUME_DURATION = 108f;
 
     private static final String FRAG_SHADER =
         "#ifdef GL_ES\n" +
@@ -52,6 +52,7 @@ public class TimeStopWarpShader{
         "        vec2 delta = worldPos - z.xy;\n" +
         "        float dist = length(delta);\n" +
         "        vec2 dir = dist > 0.001 ? (delta / dist) : vec2(0.0);\n" +
+        "        vec2 tang = vec2(-dir.y, dir.x);\n" +
         "\n" +
         "        float maxR = max(1.0, z.z);\n" +
         "        float waveR = z.w;\n" +
@@ -61,18 +62,20 @@ public class TimeStopWarpShader{
         "        float fade = p.w;\n" +
         "\n" +
         "        if(warpStrength > 0.001 && waveR > 1.0){\n" +
-        "            float bandWidth = max(24.0, maxR * 0.22);\n" +
+        "            float bandWidth = max(36.0, maxR * 0.24);\n" +
         "            float dWave = dist - waveR;\n" +
-        "            float band = exp(-(dWave * dWave) / (bandWidth * bandWidth));\n" +
-        "            float ripple = sin(clamp(dWave / bandWidth, -1.5, 1.5) * 2.1);\n" +
-        "            float pushWorld = (ripple * 18.0 - band * 10.0) * warpStrength * fade;\n" +
-        "            totalUvOffset += (dir * pushWorld) / u_resolution;\n" +
+        "            float norm = dWave / bandWidth;\n" +
+        "            float band = exp(-(norm * norm));\n" +
+        "            float ripple = sin(clamp(norm, -1.6, 1.6) * 2.2);\n" +
+        "            float pushWorld = (ripple * 76.0 - band * 34.0) * warpStrength * fade;\n" +
+        "            float swirlWorld = band * 16.0 * warpStrength * fade;\n" +
+        "            totalUvOffset += (dir * pushWorld + tang * swirlWorld) / u_resolution;\n" +
         "            chromaAmount = max(chromaAmount, band * warpStrength * fade);\n" +
         "            ringHighlight = max(ringHighlight, band * warpStrength * fade);\n" +
         "        }\n" +
         "\n" +
         "        if(domeR > 1.0 && dist < domeR){\n" +
-        "            float edgeSoft = clamp((domeR - dist) / 14.0, 0.0, 1.0) * fade;\n" +
+        "            float edgeSoft = clamp((domeR - dist) / 16.0, 0.0, 1.0) * fade;\n" +
         "            domeFactor = max(domeFactor, edgeSoft);\n" +
         "            invertFactor = max(invertFactor, edgeSoft * invStrength);\n" +
         "        }\n" +
@@ -82,30 +85,31 @@ public class TimeStopWarpShader{
         "    vec4 col = texture2D(u_texture, sampleUv);\n" +
         "\n" +
         "    if(chromaAmount > 0.02){\n" +
-        "        vec2 split = totalUvOffset * (0.45 * chromaAmount) + vec2(0.0022 * chromaAmount, 0.0);\n" +
+        "        vec2 split = totalUvOffset * (0.55 * chromaAmount) + vec2(0.0085 * chromaAmount, 0.0025 * chromaAmount);\n" +
         "        float r = texture2D(u_texture, clamp(sampleUv + split, vec2(0.001), vec2(0.999))).r;\n" +
         "        float b = texture2D(u_texture, clamp(sampleUv - split, vec2(0.001), vec2(0.999))).b;\n" +
-        "        col.r = mix(col.r, r, 0.75);\n" +
-        "        col.b = mix(col.b, b, 0.75);\n" +
+        "        col.r = mix(col.r, r, 0.85);\n" +
+        "        col.b = mix(col.b, b, 0.85);\n" +
         "    }\n" +
         "\n" +
         "    if(domeFactor > 0.001){\n" +
         "        float luma = dot(col.rgb, vec3(0.299, 0.587, 0.114));\n" +
-        "        vec3 frozenTone = mix(vec3(luma), col.rgb, 0.35) * vec3(0.84, 0.74, 1.15);\n" +
+        "        vec3 frozenTone = mix(vec3(luma), col.rgb, 0.22) * vec3(0.76, 0.64, 1.18);\n" +
         "        vec3 inverted = vec3(1.0) - col.rgb;\n" +
-        "        vec3 jjbaInvert = mix(inverted, vec3(0.65, 0.32, 0.98) * (0.4 + 0.8 * luma), 0.25);\n" +
+        "        vec3 jjbaInvert = mix(inverted, vec3(0.72, 0.34, 1.0) * (0.35 + 0.85 * luma), 0.22);\n" +
         "        vec3 targetCol = mix(frozenTone, jjbaInvert, clamp(invertFactor, 0.0, 1.0));\n" +
         "        col.rgb = mix(col.rgb, targetCol, domeFactor);\n" +
         "    }\n" +
         "\n" +
-        "    if(ringHighlight > 0.05){\n" +
-        "        col.rgb += vec3(0.22, 0.38, 0.55) * ringHighlight * 0.35;\n" +
+        "    if(ringHighlight > 0.04){\n" +
+        "        col.rgb += vec3(0.28, 0.45, 0.68) * ringHighlight * 0.45;\n" +
         "    }\n" +
         "\n" +
         "    gl_FragColor = col;\n" +
         "}\n";
 
-    private static final Seq<WarpZone> zones = new Seq<>(MAX_ZONES);
+    private static final WarpZone[] zones = {new WarpZone(), new WarpZone()};
+    private static int zoneCount = 0;
     private static final float[] zoneVecs = new float[MAX_ZONES * 4];
     private static final float[] zoneParams = new float[MAX_ZONES * 4];
 
@@ -126,13 +130,13 @@ public class TimeStopWarpShader{
             shader = new Shader(vert, FRAG_SHADER){
                 @Override
                 public void apply(){
-                    int count = Math.min(MAX_ZONES, zones.size);
+                    int count = Math.min(MAX_ZONES, zoneCount);
                     setUniformi("u_zone_count", count);
                     if(count > 0){
                         setUniformf("u_resolution", Core.camera.width, Core.camera.height);
                         setUniformf("u_campos", Core.camera.position.x - Core.camera.width / 2f, Core.camera.position.y - Core.camera.height / 2f);
                         for(int i = 0; i < count; i++){
-                            WarpZone z = zones.get(i);
+                            WarpZone z = zones[i];
                             int off = i * 4;
                             zoneVecs[off] = z.x;
                             zoneVecs[off + 1] = z.y;
@@ -159,7 +163,7 @@ public class TimeStopWarpShader{
 
         Events.run(Trigger.preDraw, () -> {
             if(!Vars.state.isGame()){
-                zones.clear();
+                zoneCount = 0;
                 hadAny = false;
                 return;
             }
@@ -168,7 +172,7 @@ public class TimeStopWarpShader{
             int w = Core.graphics.getWidth();
             int h = Core.graphics.getHeight();
 
-            hadAny = enabled && !disabledByError && !pixelating && shader != null && buffer != null && zones.size > 0 && w > 0 && h > 0;
+            hadAny = enabled && !disabledByError && !pixelating && shader != null && buffer != null && zoneCount > 0 && w > 0 && h > 0;
             if(hadAny){
                 try{
                     buffer.resize(w, h);
@@ -202,18 +206,20 @@ public class TimeStopWarpShader{
     }
 
     public static void clear(){
-        zones.clear();
+        zoneCount = 0;
     }
 
     public static void beginSync(){
-        zones.clear();
+        zoneCount = 0;
     }
 
     public static void addZone(float x, float y, float radius, float timer, float totalDuration, float introExpand, float introShrink){
-        if(Vars.headless || disabledByError || zones.size >= MAX_ZONES) return;
+        if(Vars.headless || disabledByError || zoneCount >= MAX_ZONES) return;
 
         float elapsed = Math.max(0f, totalDuration - timer);
-        float tailFade = timer < 18f ? Mathf.clamp(timer / 18f) : 1f;
+        float tailFade = timer < RESUME_DURATION
+            ? Interp.pow2Out.apply(Mathf.clamp(timer / RESUME_DURATION))
+            : 1f;
 
         float domeScale = elapsed <= introExpand
             ? Interp.pow3Out.apply(elapsed / introExpand)
@@ -225,18 +231,23 @@ public class TimeStopWarpShader{
         float invertStrength = 0f;
 
         if(elapsed <= introExpand){
-            float f = elapsed / introExpand;
+            float f = elapsed / Math.max(1f, introExpand);
             waveRadius = radius * Interp.pow3Out.apply(f);
-            warpStrength = 1.05f * (1f - f * 0.25f);
-            invertStrength = f < 0.18f ? 0.92f : Mathf.lerp(0.65f, 0.25f, (f - 0.18f) / 0.82f);
+            warpStrength = 1.25f * (1f - f * 0.15f);
+            invertStrength = f < 0.25f ? 0.95f : Mathf.lerp(0.85f, 0.45f, (f - 0.25f) / 0.75f);
         }else if(elapsed <= introShrink){
             float f = (elapsed - introExpand) / Math.max(1f, introShrink - introExpand);
             waveRadius = radius * Interp.pow4In.apply(Math.max(0f, 1f - f));
-            warpStrength = 1.35f * (1f - f * 0.4f);
-            invertStrength = 0.65f * (1f - f);
+            warpStrength = 1.45f * (1f - f * 0.25f);
+            invertStrength = Mathf.lerp(0.75f, 0.10f, f);
+        }else if(timer < RESUME_DURATION){
+            float rf = 1f - Mathf.clamp(timer / RESUME_DURATION);
+            waveRadius = radius * Math.max(0f, 1f - Interp.pow2In.apply(rf));
+            warpStrength = 1.25f * Mathf.sin(rf * Mathf.PI);
+            invertStrength = 0.65f * (1f - rf);
         }
 
-        WarpZone wz = new WarpZone();
+        WarpZone wz = zones[zoneCount++];
         wz.x = x;
         wz.y = y;
         wz.radius = radius;
@@ -245,11 +256,10 @@ public class TimeStopWarpShader{
         wz.invertStrength = invertStrength;
         wz.domeRadius = domeRadius;
         wz.fade = tailFade;
-        zones.add(wz);
     }
 
     private static class WarpZone{
         float x, y, radius;
         float waveRadius, warpStrength, invertStrength, domeRadius, fade;
     }
-                              }
+}
