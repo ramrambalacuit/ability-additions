@@ -28,7 +28,7 @@ public class MeleeCommandAI extends CommandAI{
     public float lungeBurstTicks = 8f;
     public float lungeBurstSpeed = 4.2f;
 
-    public float zigzagSpeed = 0.72f;
+    public float zigzagSpeed = 0.92f;
 
     public boolean canSprint = true;
     public boolean canLunge = true;
@@ -44,12 +44,16 @@ public class MeleeCommandAI extends CommandAI{
     protected float threatAlertTimer = 0f;
     protected int zigzagDir = 1;
     protected float zigzagSwitchTimer = 0f;
+    protected float zigzagRotOffset = 0f;
+    protected float zigzagRotTimer = 0f;
 
     public @Nullable Cons<Unit> onLungeStart;
 
     public MeleeCommandAI(){
         zigzagDir = Mathf.chance(0.5f) ? 1 : -1;
-        zigzagSwitchTimer = Mathf.random(28f, 62f);
+        zigzagSwitchTimer = Mathf.random(55f, 105f);
+        zigzagRotOffset = Mathf.range(22f);
+        zigzagRotTimer = Mathf.random(18f, 36f);
     }
 
     public void notifyThreatened(){
@@ -58,6 +62,11 @@ public class MeleeCommandAI extends CommandAI{
 
     @Override
     public void updateTargeting(){
+        if(targetPos != null && !unit.within(targetPos, 10f)){
+            attackTarget = null;
+            return;
+        }
+
         if(attackTarget != null){
             if(!attackTarget.isAdded()
                 || (attackTarget instanceof Healthc h && h.dead())
@@ -66,7 +75,7 @@ public class MeleeCommandAI extends CommandAI{
             }
         }
 
-        if(attackTarget == null && !hasStance(UnitStance.holdFire)){
+        if(attackTarget == null && targetPos == null && !hasStance(UnitStance.holdFire)){
             float scanRange = threatAlertTimer > 0f ? viewRange * 1.25f : viewRange;
             Unit closest = Units.closestEnemy(unit.team, unit.x, unit.y, scanRange,
                 u -> !u.dead && (unit.type.targetAir || !u.isFlying()) && u.hittable());
@@ -90,7 +99,19 @@ public class MeleeCommandAI extends CommandAI{
         boolean holdFire = hasStance(UnitStance.holdFire);
         boolean aiMarching = marchEnemyCore && !unit.isPlayer() && unit.team != Vars.state.rules.defaultTeam;
 
+        if(targetPos != null && !unit.within(targetPos, 10f)){
+            attackTarget = null;
+        }
+
         super.updateUnit();
+
+        if(targetPos != null && !unit.within(targetPos, 10f)){
+            attackTarget = null;
+            dashTimer = 0f;
+            sprinting = canSprint;
+            stopAttacking();
+            return;
+        }
 
         if(dashTimer > 0f){
             dashTimer = Math.max(0f, dashTimer - Time.delta);
@@ -178,18 +199,22 @@ public class MeleeCommandAI extends CommandAI{
         float holdDist = Math.max(4f, desiredEdgeDist);
         float minDist = Math.min(holdDist * 0.7f, tooCloseEdgeDist);
 
-        if(edgeDst <= meleeEdgeReach + 12f){
-            unit.lookAt(aimAngle);
-
+        if(edgeDst <= meleeEdgeReach + 14f){
             if(attackTarget instanceof Unit && canZigzag){
                 zigzagSwitchTimer -= Time.delta;
                 if(zigzagSwitchTimer <= 0f){
                     zigzagDir = -zigzagDir;
-                    zigzagSwitchTimer = Mathf.random(28f, 64f);
+                    zigzagSwitchTimer = Mathf.random(55f, 105f);
+                }
+
+                zigzagRotTimer -= Time.delta;
+                if(zigzagRotTimer <= 0f){
+                    zigzagRotOffset = Mathf.range(24f);
+                    zigzagRotTimer = Mathf.random(18f, 38f);
                 }
 
                 float tangentAng = aimAngle + 90f * zigzagDir;
-                if(isPathBlocked(tangentAng, 14f)){
+                if(isPathBlocked(tangentAng, 16f)){
                     zigzagDir = -zigzagDir;
                     tangentAng = aimAngle + 90f * zigzagDir;
                 }
@@ -211,7 +236,10 @@ public class MeleeCommandAI extends CommandAI{
                 }else{
                     unit.vel.scl(0.75f);
                 }
+
+                unit.lookAt(aimAngle + zigzagDir * 14f + zigzagRotOffset);
             }else{
+                unit.lookAt(aimAngle);
                 if(edgeDst < minDist){
                     float backAng = aimAngle + 180f;
                     if(!isPathBlocked(backAng, 10f)){
@@ -301,4 +329,4 @@ public class MeleeCommandAI extends CommandAI{
         }
         return false;
     }
-}
+    }
