@@ -63,15 +63,16 @@ public class TimeStopWarpShader{
         "        float fade = p.w;\n" +
         "\n" +
         "        if(warpStrength > 0.001 && waveR > 1.0){\n" +
-        "            float bandWidth = max(36.0, maxR * 0.28);\n" +
+        "            float bandWidth = max(36.0, maxR * 0.24);\n" +
         "            float dWave = dist - waveR;\n" +
-        "            float band = exp(-(dWave * dWave) / (bandWidth * bandWidth));\n" +
-        "            float ripple = sin(clamp(dWave / bandWidth, -1.6, 1.6) * 2.25);\n" +
-        "            vec2 pushWorld = (dir * (ripple * 58.0 - band * 34.0) + tang * (band * 16.0)) * warpStrength * fade;\n" +
-        "            totalUvOffset += pushWorld / max(vec2(1.0), u_resolution);\n" +
-        "            float wPeak = band * warpStrength * fade;\n" +
-        "            chromaAmount = max(chromaAmount, wPeak);\n" +
-        "            ringHighlight = max(ringHighlight, wPeak);\n" +
+        "            float normD = dWave / bandWidth;\n" +
+        "            float band = exp(-(normD * normD) * 1.4);\n" +
+        "            float ripple = sin(clamp(normD, -1.7, 1.7) * 2.2);\n" +
+        "            float radialPush = (ripple * 68.0 - band * 32.0) * warpStrength * fade;\n" +
+        "            float swirlPush = band * 22.0 * warpStrength * fade;\n" +
+        "            totalUvOffset += (dir * radialPush + tang * swirlPush) / u_resolution;\n" +
+        "            chromaAmount = max(chromaAmount, band * warpStrength * fade);\n" +
+        "            ringHighlight = max(ringHighlight, band * warpStrength * fade);\n" +
         "        }\n" +
         "\n" +
         "        if(domeR > 1.0 && dist < domeR){\n" +
@@ -84,8 +85,8 @@ public class TimeStopWarpShader{
         "    vec2 sampleUv = clamp(uv + totalUvOffset, vec2(0.001), vec2(0.999));\n" +
         "    vec4 col = texture2D(u_texture, sampleUv);\n" +
         "\n" +
-        "    if(chromaAmount > 0.02){\n" +
-        "        vec2 split = totalUvOffset * (0.48 * chromaAmount) + vec2(0.0065 * chromaAmount, 0.0025 * chromaAmount);\n" +
+        "    if(chromaAmount > 0.015){\n" +
+        "        vec2 split = totalUvOffset * (0.35 * chromaAmount) + vec2(0.0075 * chromaAmount, 0.003 * chromaAmount);\n" +
         "        float r = texture2D(u_texture, clamp(sampleUv + split, vec2(0.001), vec2(0.999))).r;\n" +
         "        float b = texture2D(u_texture, clamp(sampleUv - split, vec2(0.001), vec2(0.999))).b;\n" +
         "        col.r = mix(col.r, r, 0.85);\n" +
@@ -94,15 +95,15 @@ public class TimeStopWarpShader{
         "\n" +
         "    if(domeFactor > 0.001){\n" +
         "        float luma = dot(col.rgb, vec3(0.299, 0.587, 0.114));\n" +
-        "        vec3 frozenTone = mix(vec3(luma), col.rgb, 0.30) * vec3(0.82, 0.72, 1.18);\n" +
+        "        vec3 frozenTone = mix(vec3(luma), col.rgb, 0.25) * vec3(0.80, 0.72, 1.18);\n" +
         "        vec3 inverted = vec3(1.0) - col.rgb;\n" +
-        "        vec3 jjbaInvert = mix(inverted, vec3(0.70, 0.34, 1.0) * (0.35 + 0.85 * luma), 0.22);\n" +
+        "        vec3 jjbaInvert = mix(inverted, vec3(0.72, 0.34, 1.0) * (0.35 + 0.85 * luma), 0.22);\n" +
         "        vec3 targetCol = mix(frozenTone, jjbaInvert, clamp(invertFactor, 0.0, 1.0));\n" +
         "        col.rgb = mix(col.rgb, targetCol, domeFactor);\n" +
         "    }\n" +
         "\n" +
-        "    if(ringHighlight > 0.04){\n" +
-        "        col.rgb += vec3(0.28, 0.44, 0.65) * ringHighlight * 0.42;\n" +
+        "    if(ringHighlight > 0.03){\n" +
+        "        col.rgb += vec3(0.28, 0.45, 0.65) * ringHighlight * 0.42;\n" +
         "    }\n" +
         "\n" +
         "    gl_FragColor = col;\n" +
@@ -114,6 +115,7 @@ public class TimeStopWarpShader{
 
     private static @Nullable Shader shader;
     private static @Nullable FrameBuffer buffer;
+    private static @Nullable Bloom savedBloom;
     private static boolean initialized = false;
     private static boolean disabledByError = false;
     private static boolean hadAny = false;
@@ -163,6 +165,7 @@ public class TimeStopWarpShader{
         Events.run(Trigger.preDraw, () -> {
             if(!Vars.state.isGame()){
                 zones.clear();
+                restoreBloom();
                 hadAny = false;
                 return;
             }
@@ -173,14 +176,18 @@ public class TimeStopWarpShader{
 
             hadAny = enabled && !disabledByError && !pixelating && shader != null && buffer != null && zones.size > 0 && w > 0 && h > 0;
             if(hadAny){
+                pauseBloom();
                 try{
                     buffer.resize(w, h);
                     buffer.begin(Color.clear);
                 }catch(Throwable t){
                     hadAny = false;
                     disabledByError = true;
+                    restoreBloom();
                     Log.err("[AbilityAdditions] TimeStopWarpShader preDraw failed.", t);
                 }
+            }else{
+                restoreBloom();
             }
         });
 
@@ -195,6 +202,7 @@ public class TimeStopWarpShader{
                     Draw.blend();
                 }catch(Throwable t){
                     disabledByError = true;
+                    restoreBloom();
                     try{
                         Draw.blend();
                     }catch(Throwable ignored){}
@@ -204,8 +212,25 @@ public class TimeStopWarpShader{
         });
     }
 
+    private static void pauseBloom(){
+        if(Vars.renderer != null && Vars.renderer.bloom != null && savedBloom == null){
+            savedBloom = Vars.renderer.bloom;
+            Vars.renderer.bloom = null;
+        }
+    }
+
+    private static void restoreBloom(){
+        if(savedBloom != null){
+            if(Vars.renderer != null && Vars.renderer.bloom == null && Core.settings.getBool("bloom", true)){
+                Vars.renderer.bloom = savedBloom;
+            }
+            savedBloom = null;
+        }
+    }
+
     public static void clear(){
         zones.clear();
+        restoreBloom();
     }
 
     public static void beginSync(){
@@ -215,6 +240,10 @@ public class TimeStopWarpShader{
     public static void addZone(float x, float y, float radius, float timer, float totalDuration, float introExpand, float introShrink){
         if(Vars.headless || disabledByError || zones.size >= MAX_ZONES) return;
 
+        if(Core.settings.getBool("aa-timestop-warp", true) && !(Vars.renderer != null && Vars.renderer.pixelate)){
+            pauseBloom();
+        }
+
         float elapsed = Math.max(0f, totalDuration - timer);
         float tailFade = timer < RESUME_DURATION
             ? Interp.pow2Out.apply(Mathf.clamp(timer / RESUME_DURATION))
@@ -222,7 +251,7 @@ public class TimeStopWarpShader{
 
         float domeScale = elapsed <= introExpand
             ? Interp.pow3Out.apply(elapsed / introExpand)
-            : 1f;
+            : (timer < RESUME_DURATION ? (1f - 0.12f * (1f - timer / RESUME_DURATION)) : 1f);
         float domeRadius = radius * domeScale;
 
         float waveRadius = 0f;
@@ -232,20 +261,18 @@ public class TimeStopWarpShader{
         if(elapsed <= introExpand){
             float f = elapsed / introExpand;
             waveRadius = radius * Interp.pow3Out.apply(f);
-            warpStrength = 1.35f * (1f - f * 0.25f);
-            invertStrength = f < 0.22f ? 0.95f : Mathf.lerp(0.80f, 0.45f, (f - 0.22f) / 0.78f);
+            warpStrength = 1.15f * (1f - f * 0.18f);
+            invertStrength = f < 0.25f ? 0.96f : Mathf.lerp(0.85f, 0.45f, (f - 0.25f) / 0.75f);
         }else if(elapsed <= introShrink){
             float f = (elapsed - introExpand) / Math.max(1f, introShrink - introExpand);
             waveRadius = radius * Interp.pow4In.apply(Math.max(0f, 1f - f));
-            warpStrength = 1.65f * (1f - f * 0.35f);
-            invertStrength = 0.85f * (1f - f);
+            warpStrength = 1.35f * (1f - f * 0.25f);
+            invertStrength = Mathf.lerp(0.75f, 0.08f, f);
         }else if(timer < RESUME_DURATION){
-            float rf = Mathf.clamp(1f - (timer / RESUME_DURATION));
-            domeRadius = radius * (1f - Interp.pow2In.apply(rf) * 0.25f);
-            waveRadius = radius * (1f - Interp.pow3In.apply(rf));
-            float pulse = Mathf.sin(rf * Mathf.pi);
-            warpStrength = 1.25f * pulse;
-            invertStrength = 0.55f * pulse;
+            float f = 1f - Mathf.clamp(timer / RESUME_DURATION);
+            waveRadius = radius * (1f - Interp.pow2In.apply(f));
+            warpStrength = 1.10f * (1f - f * 0.35f);
+            invertStrength = 0.55f * Mathf.sin(Mathf.clamp(f * 1.15f) * Mathf.PI);
         }
 
         WarpZone wz = new WarpZone();
@@ -264,4 +291,4 @@ public class TimeStopWarpShader{
         float x, y, radius;
         float waveRadius, warpStrength, invertStrength, domeRadius, fade;
     }
-} 
+        }
