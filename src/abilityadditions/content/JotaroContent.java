@@ -557,7 +557,7 @@ public class JotaroContent{
         JotaroCommandAI ai = new JotaroCommandAI();
         ai.onDashAudio = u -> playSound(dashSound, u.x, u.y, Mathf.random(0.95f, 1.1f), 0.95f);
         ai.onTeleportBlink = (u, oldPos) -> {
-            teleportClockEffect.at(oldPos.getX(), oldPos.getY(), u.rotation, JOTARO_PURPLE);
+            teleportClockEffect.at(oldPos.x, oldPos.y, u.rotation, JOTARO_PURPLE);
             teleportClockEffect.at(u.x, u.y, u.rotation, JOTARO_GOLD);
             playSound(teleportSound != Sounds.none ? teleportSound : dashSound, u.x, u.y, 1.1f, 0.95f);
         };
@@ -2705,7 +2705,7 @@ public class JotaroContent{
         public float threatAlertTimer = 0f;
 
         public @Nullable Cons<Unit> onDashAudio;
-        public @Nullable Cons2<Unit, Position> onTeleportBlink;
+        public @Nullable Cons2<Unit, Vec2> onTeleportBlink;
 
         public void notifyThreatened(){
             threatAlertTimer = 240f;
@@ -2713,31 +2713,33 @@ public class JotaroContent{
 
         @Override
         public void updateTargeting(){
+            boolean holdFire = hasStance(UnitStance.holdFire);
+
+            if(attackTarget != null && Units.invalidateTarget(attackTarget, unit.team, unit.x, unit.y, Float.MAX_VALUE)){
+                attackTarget = null;
+            }
             if(attackTarget instanceof Unit u && u.isFlying() && !unit.type.targetAir){
                 attackTarget = null;
             }
-            if(attackTarget != null && !attackTarget.isValid()){
-                attackTarget = null;
-            }
 
-            if(hasCommand() && command.switchToAttack != null && stance != UnitStance.holdFire){
-                super.updateTargeting();
-                if(attackTarget instanceof Unit u && u.isFlying() && !unit.type.targetAir){
-                    attackTarget = null;
-                }
-            }
-
-            if(attackTarget == null && targetPos == null && stance != UnitStance.holdFire){
+            if(attackTarget == null && targetPos == null && !holdFire){
                 float scanRange = threatAlertTimer > 0f ? detectThreatRange * 1.35f : detectThreatRange;
                 Unit closeThreat = Units.closestEnemy(unit.team, unit.x, unit.y, scanRange, u -> !u.dead && !u.isFlying() && u.hittable());
                 if(closeThreat != null){
                     attackTarget = closeThreat;
                 }else{
                     float bScan = threatAlertTimer > 0f ? scanRange : 64f;
-                    Building closeBuild = Units.findEnemyTile(unit.team, unit.x, unit.y, bScan, b -> b.block.targetable);
+                    Building closeBuild = findClosestEnemyBuilding(bScan);
                     if(closeBuild != null){
                         attackTarget = closeBuild;
                     }
+                }
+            }
+
+            if(attackTarget == null && !holdFire && isAttacking()){
+                Teamc auto = Units.closestTarget(unit.team, unit.x, unit.y, unit.range() + 80f, u -> unit.type.targetAir || !u.isFlying(), b -> unit.type.targetGround);
+                if(auto != null){
+                    attackTarget = auto;
                 }
             }
         }
@@ -2767,16 +2769,17 @@ public class JotaroContent{
                     activeFlankDash = false;
                     flankTarget = null;
                 }else{
-                    if(activeFlankDash && flankTarget != null && flankTarget.isValid()){
-                        float dirToTgt = Angles.angle(unit.x, unit.y, flankTarget.getX(), flankTarget.getY());
+                    if(activeFlankDash && flankTarget != null && !Units.invalidateTarget(flankTarget, unit.team, unit.x, unit.y, Float.MAX_VALUE)){
+                        float dirToTgt = Angles.angle(unit.x, unit.y, flankTarget.x(), flankTarget.y());
                         float curveSign = Angles.angleDist(dirToTgt, dashAngle) >= 0f ? 1f : -1f;
-                        float edge = unit.dst(flankTarget) - unit.hitSize * 0.5f - flankTarget.hitSize() * 0.5f;
+                        float tgtRad = flankTarget instanceof Sized s ? s.hitSize() * 0.5f : 0f;
+                        float edge = unit.dst(flankTarget) - unit.hitSize * 0.5f - tgtRad;
                         if(edge < 16f){
                             dashAngle = Angles.moveToward(dashAngle, dirToTgt + curveSign * 66f, 18f * Time.delta);
                         }
                     }
                     unit.vel.trns(dashAngle, dashSpeed);
-                    if(flankTarget != null && flankTarget.isValid()){
+                    if(flankTarget != null && !Units.invalidateTarget(flankTarget, unit.team, unit.x, unit.y, Float.MAX_VALUE)){
                         unit.lookAt(flankTarget);
                     }else{
                         unit.rotation = dashAngle;
@@ -2790,10 +2793,10 @@ public class JotaroContent{
                 applyBulletWeaveSteering();
             }
 
-            boolean holdFire = stance == UnitStance.holdFire;
+            boolean holdFire = hasStance(UnitStance.holdFire);
             float punchReach = standActiveOut ? 54f : 28f;
 
-            if(attackTarget == null || !attackTarget.isValid()){
+            if(attackTarget == null || Units.invalidateTarget(attackTarget, unit.team, unit.x, unit.y, Float.MAX_VALUE)){
                 sprinting = false;
                 if(!holdFire){
                     Unit close = Units.closestEnemy(unit.team, unit.x, unit.y, punchReach + 12f, u -> !u.dead && !u.isFlying() && u.hittable());
@@ -2814,7 +2817,7 @@ public class JotaroContent{
                 return;
             }
 
-            float targetRad = attackTarget.hitSize() * 0.5f;
+            float targetRad = attackTarget instanceof Sized s ? s.hitSize() * 0.5f : 0f;
             float centerDst = unit.dst(attackTarget);
             float edgeDst = centerDst - unit.hitSize * 0.5f - targetRad;
 
@@ -2841,7 +2844,7 @@ public class JotaroContent{
                         lungeCooldown = lungeCooldownDuration;
                     }
                 }else{
-                    float ang = Angles.angle(unit.x, unit.y, attackTarget.getX(), attackTarget.getY());
+                    float ang = Angles.angle(unit.x, unit.y, attackTarget.x(), attackTarget.y());
                     if(!isPathBlocked(ang, Math.min(centerDst - targetRad, 72f))){
                         dashAngle = ang;
                         dashSpeed = lungeBurstSpeed;
@@ -2860,7 +2863,7 @@ public class JotaroContent{
 
             if(dashTimer <= 0f && edgeDst <= desiredEdge){
                 if(standVsUnit && edgeDst < desiredEdge - 8f){
-                    float backAng = Angles.angle(attackTarget.getX(), attackTarget.getY(), unit.x, unit.y);
+                    float backAng = Angles.angle(attackTarget.x(), attackTarget.y(), unit.x, unit.y);
                     if(!isPathBlocked(backAng, 14f)){
                         unit.moveAt(Tmp.v1.trns(backAng, unit.speed() * 0.65f));
                     }else{
@@ -2906,8 +2909,8 @@ public class JotaroContent{
         }
 
         private boolean tryTimeSkipTeleport(Teamc target, float targetRad){
-            float tx = target.getX();
-            float ty = target.getY();
+            float tx = target.x();
+            float ty = target.y();
             float standDist = standDesiredEdgeDist + unit.hitSize * 0.5f + targetRad;
             float targetFacing = target instanceof Unit u ? u.rotation : Angles.angle(unit.x, unit.y, tx, ty);
 
@@ -2923,7 +2926,7 @@ public class JotaroContent{
                 float ny = ty + Angles.trnsy(ang, standDist);
                 Tile tile = Vars.world.tileWorld(nx, ny);
                 if(tile != null && !tile.solid()){
-                    Vec2 oldPos = Tmp.v1.set(unit.x, unit.y);
+                    Vec2 oldPos = new Vec2(unit.x, unit.y);
                     unit.set(nx, ny);
                     unit.vel.setZero();
                     unit.lookAt(target);
@@ -2937,7 +2940,7 @@ public class JotaroContent{
         }
 
         private boolean triggerCombatFlankDash(Teamc target, float targetRad){
-            float baseAng = Angles.angle(unit.x, unit.y, target.getX(), target.getY());
+            float baseAng = Angles.angle(unit.x, unit.y, target.x(), target.y());
             float sizeScale = Mathf.clamp((targetRad + 10f) / 16f, 0.95f, 2.25f);
             float chosenSpeed = baseDodgeSpeed * Mathf.lerp(1f, sizeScale, 0.45f);
             float chosenTicks = baseDodgeTicks * Mathf.lerp(1f, sizeScale, 0.55f);
