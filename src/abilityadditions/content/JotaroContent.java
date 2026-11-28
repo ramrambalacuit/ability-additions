@@ -62,6 +62,7 @@ public class JotaroContent{
 
     private static final IntMap<JotaroRuntime> runtimes = new IntMap<>();
     private static final Seq<TimeStopZone> timeStopZones = new Seq<>();
+    private static final IntMap<FrozenUnit> frozenUnits = new IntMap<>();
     private static final IntMap<FrozenBullet> frozenBullets = new IntMap<>();
     private static final Seq<CutsceneDuel> activeCutscenes = new Seq<>();
     private static final Seq<ShakenUnit> shakenUnits = new Seq<>();
@@ -91,8 +92,9 @@ public class JotaroContent{
     private static final float INHALE_RANGE = 240f;
 
     private static final float TIME_STOP_DURATION = 720f;
-    private static final float TIME_STOP_INTRO_EXPAND = 180f;
-    private static final float TIME_STOP_INTRO_SHRINK = 240f;
+    private static final float TIME_STOP_INTRO_EXPAND = 120f;
+    private static final float TIME_STOP_INTRO_SHRINK = 175f;
+    private static final float TIME_STOP_RESUME_DURATION = 108f;
     private static final float TIME_STOP_COOLDOWN = 1800f;
     private static final float TIME_STOP_RADIUS = 320f;
     private static final int TIME_STOP_HITS_REQUIRED = 50;
@@ -721,11 +723,14 @@ public class JotaroContent{
                 }
             }
 
-            if(e.unit.hasEffect(timeStopFreeze) && e.bullet != null){
+            if(e.bullet != null && (e.unit.hasEffect(timeStopFreeze) || frozenUnits.containsKey(e.unit.id))){
                 for(int i = 0; i < timeStopZones.size; i++){
                     TimeStopZone zone = timeStopZones.get(i);
                     if(e.unit.team != zone.team && e.unit.within(zone.x, zone.y, zone.radius + 16f)){
-                        zone.queuedDamage.put(e.unit.id, zone.queuedDamage.get(e.unit.id, 0f) + Math.max(25f, e.bullet.damage * 0.65f));
+                        float flow = getZoneTimeFlow(zone);
+                        if(flow <= 0.35f){
+                            zone.queuedDamage.put(e.unit.id, zone.queuedDamage.get(e.unit.id, 0f) + Math.max(25f, e.bullet.damage * 0.65f));
+                        }
                         break;
                     }
                 }
@@ -737,6 +742,7 @@ public class JotaroContent{
             TimeStopWarpShader.clear();
             runtimes.clear();
             timeStopZones.clear();
+            frozenUnits.clear();
             frozenBullets.clear();
             activeCutscenes.clear();
             shakenUnits.clear();
@@ -1136,9 +1142,39 @@ public class JotaroContent{
         Draw.z(oldZ);
     }
 
+    private static float getZoneTimeFlow(TimeStopZone zone){
+        float elapsed = Math.max(0f, TIME_STOP_DURATION - zone.timer);
+        if(elapsed < TIME_STOP_INTRO_EXPAND){
+            float f = Mathf.clamp(elapsed / TIME_STOP_INTRO_EXPAND);
+            return Interp.pow2In.apply(1f - f);
+        }
+        if(zone.timer < TIME_STOP_RESUME_DURATION){
+            float f = Mathf.clamp(1f - (zone.timer / TIME_STOP_RESUME_DURATION));
+            return Interp.pow2In.apply(f);
+        }
+        return 0f;
+    }
+
+    private static float getZoneActiveRadius(TimeStopZone zone){
+        float elapsed = Math.max(0f, TIME_STOP_DURATION - zone.timer);
+        if(elapsed <= TIME_STOP_INTRO_EXPAND){
+            return zone.radius * Interp.pow3Out.apply(elapsed / TIME_STOP_INTRO_EXPAND);
+        }
+        return zone.radius;
+    }
+
     private static void updateTimeStopWorld(){
         if(timeStopZones.size == 0){
             TimeStopWarpShader.clear();
+            if(frozenUnits.size > 0){
+                for(IntMap.Entry<FrozenUnit> entry : frozenUnits){
+                    FrozenUnit fu = entry.value;
+                    if(fu.unit != null && !fu.unit.dead){
+                        fu.unit.unapply(timeStopFreeze);
+                    }
+                }
+                frozenUnits.clear();
+            }
             if(frozenBullets.size > 0){
                 releaseAllFrozenBullets();
             }
@@ -1148,47 +1184,203 @@ public class JotaroContent{
 
         TimeStopWarpShader.beginSync();
 
-        for(int i = timeStopZones.size - 1; i >= 0; i--){
-            TimeStopZone zone = timeStopZones.get(i);
-            zone.timer -= Time.delta;
+        for(int i = 0; i < timeStopZones.size; i++){
+            timeStopZones.get(i).timer -= Time.delta;
+        }
 
-            Units.nearbyEnemies(zone.team, zone.x, zone.y, zone.radius, u -> {
+        IntFloatMap unitFlowMap = new IntFloatMap();
+        for(int i = 0; i < timeStopZones.size; i++){
+            TimeStopZone zone = timeStopZones.get(i);
+            if(zone.timer <= 0f) continue;
+
+            float flow = getZoneTimeFlow(zone);
+            float activeR = getZoneActiveRadius(zone);
+
+            if(!zone.damageReleased && zone.timer <= TIME_STOP_RESUME_DURATION * 0.72f){
+                zone.damageReleased = true;
+                releaseZoneQueuedDamage(zone);
+            }
+
+            Units.nearbyEnemies(zone.team, zone.x, zone.y, Math.max(24f, activeR), u -> {
                 if(u != null && !u.dead){
-                    u.apply(timeStopFreeze, 12f);
-                    u.vel.setZero();
+                    float prev = unitFlowMap.get(u.id, 1f);
+                    if(flow < prev){
+                        unitFlowMap.put(u.id, flow);
+                    }
                 }
             });
+        }
 
-            for(Bullet b : Groups.bullet){
-                if(b == null || !b.isAdded() || b.team == zone.team) continue;
-                if(b.within(zone.x, zone.y, zone.radius)){
-                    FrozenBullet fb = frozenBullets.get(b.id);
-                    if(fb == null){
-                        fb = new FrozenBullet();
-                        fb.bullet = b;
-                        fb.savedVel.set(b.vel);
-                        fb.savedTime = b.time;
-                        frozenBullets.put(b.id, fb);
+        for(IntMap.Entry<FrozenUnit> entry : frozenUnits){
+            FrozenUnit fu = entry.value;
+            if(fu.unit == null || fu.unit.dead || !fu.unit.isAdded() || !unitFlowMap.containsKey(entry.key)){
+                if(fu.unit != null && !fu.unit.dead){
+                    fu.unit.unapply(timeStopFreeze);
+                }
+                fu.markedRemove = true;
+            }
+        }
+        Seq<Integer> deadUnitKeys = new Seq<>();
+        for(IntMap.Entry<FrozenUnit> entry : frozenUnits){
+            if(entry.value.markedRemove) deadUnitKeys.add(entry.key);
+        }
+        for(int i = 0; i < deadUnitKeys.size; i++){
+            frozenUnits.remove(deadUnitKeys.get(i));
+        }
+
+        IntFloatMap.Entries uEntries = unitFlowMap.entries();
+        while(uEntries.hasNext()){
+            IntFloatMap.Entry entry = uEntries.next();
+            Unit u = Groups.unit.getByID(entry.key);
+            if(u == null || u.dead) continue;
+            float flow = entry.value;
+
+            FrozenUnit fu = frozenUnits.get(u.id);
+            if(fu == null){
+                fu = new FrozenUnit();
+                fu.unit = u;
+                fu.lastX = u.x;
+                fu.lastY = u.y;
+                fu.lastRot = u.rotation;
+                frozenUnits.put(u.id, fu);
+            }
+
+            float dx = u.x - fu.lastX;
+            float dy = u.y - fu.lastY;
+            if(dx * dx + dy * dy > 34f * 34f){
+                fu.lastX = u.x;
+                fu.lastY = u.y;
+                fu.lastRot = u.rotation;
+            }else if(flow <= 0.01f){
+                u.set(fu.lastX, fu.lastY);
+                u.rotation = fu.lastRot;
+                u.vel.setZero();
+            }else{
+                float nx = fu.lastX + dx * flow;
+                float ny = fu.lastY + dy * flow;
+                Tile t = Vars.world.tileWorld(nx, ny);
+                if(u.isFlying() || (t != null && !t.solid())){
+                    u.set(nx, ny);
+                }
+                float dRot = Mathf.mod(u.rotation - fu.lastRot + 540f, 360f) - 180f;
+                u.rotation = fu.lastRot + dRot * flow;
+                if(u.vel.len2() > 0.0001f){
+                    float maxSpd = Math.max(0.02f, u.type.speed * flow * 1.35f);
+                    if(u.vel.len() > maxSpd){
+                        u.vel.setLength(maxSpd);
                     }
-                    b.vel.setZero();
-                    b.time = fb.savedTime;
+                }
+                fu.lastX = u.x;
+                fu.lastY = u.y;
+                fu.lastRot = u.rotation;
+            }
+
+            if(u.mounts != null){
+                if(fu.savedReloads == null || fu.savedReloads.length != u.mounts.length){
+                    fu.savedReloads = new float[u.mounts.length];
+                    for(int m = 0; m < u.mounts.length; m++){
+                        fu.savedReloads[m] = u.mounts[m].reload;
+                    }
+                }
+                for(int m = 0; m < u.mounts.length; m++){
+                    WeaponMount wm = u.mounts[m];
+                    if(flow <= 0.25f){
+                        wm.shoot = false;
+                        wm.reload = fu.savedReloads[m];
+                    }else{
+                        float dr = fu.savedReloads[m] - wm.reload;
+                        if(dr > 0f){
+                            wm.reload = fu.savedReloads[m] - dr * flow;
+                        }
+                        fu.savedReloads[m] = wm.reload;
+                    }
                 }
             }
 
-            if(zone.timer <= 0f){
-                IntFloatMap.Entries entries = zone.queuedDamage.entries();
-                while(entries.hasNext()){
-                    IntFloatMap.Entry entry = entries.next();
-                    Unit tgt = Groups.unit.getByID(entry.key);
-                    if(tgt != null && !tgt.dead){
-                        tgt.unapply(timeStopFreeze);
-                        tgt.damagePierce(entry.value);
-                        float pushAng = Angles.angle(zone.x, zone.y, tgt.x, tgt.y);
-                        tgt.impulse(Angles.trnsx(pushAng, 160f), Angles.trnsy(pushAng, 160f));
-                        heavyCircleFistEffect.at(tgt.x, tgt.y, pushAng, JOTARO_GOLD);
-                    }
+            if(flow <= 0.05f){
+                u.apply(timeStopFreeze, 8f);
+            }else if(u.hasEffect(timeStopFreeze)){
+                u.unapply(timeStopFreeze);
+            }
+        }
+
+        IntFloatMap bulletFlowMap = new IntFloatMap();
+        for(Bullet b : Groups.bullet){
+            if(b == null || !b.isAdded()) continue;
+            if(b.type instanceof ContinuousBulletType || b.type instanceof LaserBulletType || b.type instanceof PointLaserBulletType) continue;
+
+            float bestFlow = 1f;
+            boolean insideAny = false;
+            for(int i = 0; i < timeStopZones.size; i++){
+                TimeStopZone zone = timeStopZones.get(i);
+                if(zone.timer <= 0f || b.team == zone.team) continue;
+                float activeR = getZoneActiveRadius(zone);
+                if(b.within(zone.x, zone.y, Math.max(24f, activeR))){
+                    insideAny = true;
+                    bestFlow = Math.min(bestFlow, getZoneTimeFlow(zone));
                 }
-                Fx.shockwave.at(zone.x, zone.y, JOTARO_PURPLE);
+            }
+            if(insideAny){
+                bulletFlowMap.put(b.id, bestFlow);
+            }
+        }
+
+        Seq<Integer> releasedBullets = new Seq<>();
+        for(IntMap.Entry<FrozenBullet> entry : frozenBullets){
+            FrozenBullet fb = entry.value;
+            if(fb.bullet == null || !fb.bullet.isAdded()){
+                releasedBullets.add(entry.key);
+            }else if(!bulletFlowMap.containsKey(entry.key)){
+                fb.bullet.vel.set(fb.savedVel);
+                releasedBullets.add(entry.key);
+            }
+        }
+        for(int i = 0; i < releasedBullets.size; i++){
+            frozenBullets.remove(releasedBullets.get(i));
+        }
+
+        IntFloatMap.Entries bEntries = bulletFlowMap.entries();
+        while(bEntries.hasNext()){
+            IntFloatMap.Entry entry = bEntries.next();
+            Bullet b = Groups.bullet.getByID(entry.key);
+            if(b == null || !b.isAdded()) continue;
+            float flow = entry.value;
+
+            FrozenBullet fb = frozenBullets.get(b.id);
+            if(fb == null){
+                fb = new FrozenBullet();
+                fb.bullet = b;
+                fb.savedVel.set(b.vel);
+                fb.lastX = b.x;
+                fb.lastY = b.y;
+                fb.lastTime = b.time;
+                frozenBullets.put(b.id, fb);
+            }
+
+            if(flow <= 0.01f){
+                b.set(fb.lastX, fb.lastY);
+                b.vel.setZero();
+                b.time = fb.lastTime;
+            }else{
+                float dx = b.x - fb.lastX;
+                float dy = b.y - fb.lastY;
+                b.set(fb.lastX + dx * flow, fb.lastY + dy * flow);
+                float dt = Math.max(0f, b.time - fb.lastTime);
+                b.time = fb.lastTime + dt * flow;
+                b.vel.set(fb.savedVel).scl(flow);
+                fb.lastX = b.x;
+                fb.lastY = b.y;
+                fb.lastTime = b.time;
+            }
+        }
+
+        for(int i = timeStopZones.size - 1; i >= 0; i--){
+            TimeStopZone zone = timeStopZones.get(i);
+            if(zone.timer <= 0f){
+                if(!zone.damageReleased){
+                    zone.damageReleased = true;
+                    releaseZoneQueuedDamage(zone);
+                }
                 timeStopZones.remove(i);
             }else{
                 TimeStopWarpShader.addZone(zone.x, zone.y, zone.radius, zone.timer, TIME_STOP_DURATION, TIME_STOP_INTRO_EXPAND, TIME_STOP_INTRO_SHRINK);
@@ -1197,8 +1389,31 @@ public class JotaroContent{
 
         if(timeStopZones.size == 0){
             TimeStopWarpShader.clear();
+            for(IntMap.Entry<FrozenUnit> entry : frozenUnits){
+                FrozenUnit fu = entry.value;
+                if(fu.unit != null && !fu.unit.dead){
+                    fu.unit.unapply(timeStopFreeze);
+                }
+            }
+            frozenUnits.clear();
             releaseAllFrozenBullets();
         }
+    }
+
+    private static void releaseZoneQueuedDamage(TimeStopZone zone){
+        IntFloatMap.Entries entries = zone.queuedDamage.entries();
+        while(entries.hasNext()){
+            IntFloatMap.Entry entry = entries.next();
+            Unit tgt = Groups.unit.getByID(entry.key);
+            if(tgt != null && !tgt.dead){
+                tgt.unapply(timeStopFreeze);
+                tgt.damagePierce(entry.value);
+                float pushAng = Angles.angle(zone.x, zone.y, tgt.x, tgt.y);
+                tgt.impulse(Angles.trnsx(pushAng, 160f), Angles.trnsy(pushAng, 160f));
+                heavyCircleFistEffect.at(tgt.x, tgt.y, pushAng, JOTARO_GOLD);
+            }
+        }
+        zone.queuedDamage.clear();
     }
 
     private static void releaseAllFrozenBullets(){
@@ -1219,18 +1434,20 @@ public class JotaroContent{
         for(int i = 0; i < timeStopZones.size; i++){
             TimeStopZone zone = timeStopZones.get(i);
             float elapsed = TIME_STOP_DURATION - zone.timer;
-            float tailFade = zone.timer < 18f ? Mathf.clamp(zone.timer / 18f) : 1f;
+            float tailFade = zone.timer < TIME_STOP_RESUME_DURATION
+                ? Interp.pow2Out.apply(Mathf.clamp(zone.timer / TIME_STOP_RESUME_DURATION))
+                : 1f;
 
             float fieldScale = elapsed <= TIME_STOP_INTRO_EXPAND
                 ? Interp.pow3Out.apply(elapsed / TIME_STOP_INTRO_EXPAND)
                 : 1f;
             float fieldR = zone.radius * fieldScale;
-            if(fieldR > 1f){
-                Draw.color(0.10f, 0.04f, 0.22f, 0.15f * tailFade);
+            if(fieldR > 1f && tailFade > 0.005f){
+                Draw.color(0.10f, 0.04f, 0.22f, 0.16f * tailFade);
                 Fill.circle(zone.x, zone.y, fieldR);
                 Draw.color(JOTARO_PURPLE, JOTARO_GOLD, 0.35f);
                 Draw.alpha(0.45f * tailFade);
-                Lines.stroke(1.8f);
+                Lines.stroke(1.8f * tailFade + 0.3f);
                 Lines.circle(zone.x, zone.y, fieldR);
             }
 
@@ -1256,6 +1473,17 @@ public class JotaroContent{
                     Draw.alpha(0.36f);
                     Lines.stroke(1.9f);
                     Lines.circle(zone.x, zone.y, r * 0.88f);
+                    Draw.blend();
+                }
+            }else if(zone.timer < TIME_STOP_RESUME_DURATION && tailFade > 0.01f){
+                float retractFrac = 1f - (zone.timer / TIME_STOP_RESUME_DURATION);
+                float retractR = zone.radius * (1f - Interp.pow2In.apply(retractFrac));
+                if(retractR > 2f){
+                    Draw.blend(Blending.additive);
+                    Draw.color(STAND_CYAN, JOTARO_GOLD, retractFrac);
+                    Draw.alpha(0.40f * tailFade);
+                    Lines.stroke(2.8f * tailFade + 0.4f);
+                    Lines.circle(zone.x, zone.y, retractR);
                     Draw.blend();
                 }
             }
@@ -2031,7 +2259,7 @@ public class JotaroContent{
 
         @Override
         public void addStats(Table t){
-            t.add("[lightgray]Once awakened, every 50 combat hits unleashes a 12.0s anchored Time Stop in a 40-tile dome (30s CD) with a 4s chromatic wave & slowing clock intro.[]").wrap().width(320f);
+            t.add("[lightgray]Once awakened, every 50 combat hits unleashes a 12.0s anchored Time Stop in a 40-tile dome (30s CD) that smoothly slows time to a halt and fades back to normal speed.[]").wrap().width(320f);
         }
 
         @Override
@@ -2191,13 +2419,21 @@ public class JotaroContent{
         Unit owner;
         Team team;
         float x, y, radius, timer;
+        boolean damageReleased = false;
         final IntFloatMap queuedDamage = new IntFloatMap();
+    }
+
+    private static class FrozenUnit{
+        Unit unit;
+        float lastX, lastY, lastRot;
+        float[] savedReloads;
+        boolean markedRemove = false;
     }
 
     private static class FrozenBullet{
         Bullet bullet;
         final Vec2 savedVel = new Vec2();
-        float savedTime;
+        float lastX, lastY, lastTime;
     }
 
     private static class ShakenUnit{
@@ -2273,4 +2509,5 @@ public class JotaroContent{
         float invulnTimer = 0f;
         boolean resolveTriggeredBelow = false;
     }
-} 
+}
+ 
