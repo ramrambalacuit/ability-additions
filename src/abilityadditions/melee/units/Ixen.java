@@ -7,10 +7,10 @@ import arc.graphics.g2d.*;
 import arc.math.*;
 import arc.struct.*;
 import arc.util.*;
-import mindustry.*;
 import mindustry.ai.types.*;
 import mindustry.content.*;
 import mindustry.entities.*;
+import mindustry.entities.units.*;
 import mindustry.game.EventType.*;
 import mindustry.gen.*;
 import mindustry.graphics.*;
@@ -54,6 +54,7 @@ public class Ixen{
                 rotateSpeed = 6.5f;
                 baseRotateSpeed = 6.5f;
                 hitSize = 9f;
+                range = 24f;
                 health = 180f;
                 armor = 2f;
                 drag = 0.35f;
@@ -241,4 +242,4 @@ public class Ixen{
         float sprintBlend = 0f;
         float lungeBlend = 0f;
     }
-                      }
+                            }
