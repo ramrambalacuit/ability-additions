@@ -68,7 +68,7 @@ public class TimeStopWarpShader{
         "            float normD = dWave / bandWidth;\n" +
         "            float band = exp(-(normD * normD) * 1.4);\n" +
         "            float ripple = sin(clamp(normD, -1.7, 1.7) * 2.2);\n" +
-        "            float radialPush = (ripple * 110.0 - band * 50.0) * warpStrength * fade;\n" +
+        "            float radialPush = (ripple * 190.0 - band * 100.0) * warpStrength * fade;\n" +
         "            float swirlPush = band * 22.0 * warpStrength * fade;\n" +
         "            totalUvOffset += (dir * radialPush + tang * swirlPush) / u_resolution;\n" +
         "            chromaAmount = max(chromaAmount, band * warpStrength * fade);\n" +
