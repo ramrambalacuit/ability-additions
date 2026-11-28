@@ -2,9 +2,9 @@ package abilityadditions.melee.core;
 
 import arc.func.*;
 import arc.math.*;
-import arc.math.geom.*;
 import arc.util.*;
 import mindustry.*;
+import mindustry.ai.*;
 import mindustry.ai.types.*;
 import mindustry.entities.*;
 import mindustry.game.*;
@@ -28,7 +28,6 @@ public class MeleeCommandAI extends CommandAI{
     public float lungeBurstSpeed = 4.2f;
 
     public float zigzagSpeed = 0.72f;
-    public float detectThreatRange = 160f;
 
     public boolean canSprint = true;
     public boolean canLunge = true;
@@ -64,11 +63,8 @@ public class MeleeCommandAI extends CommandAI{
                 attackTarget = null;
             }
         }
-        if(threatAlertTimer > 0f && !unit.within(unit, 1f)){
-            threatAlertTimer = Math.max(0f, threatAlertTimer - Time.delta);
-        }
 
-        if(attackTarget == null && targetPos == null && !holdFire()){
+        if(attackTarget == null && targetPos == null && !hasStance(UnitStance.holdFire)){
             float scanRange = threatAlertTimer > 0f ? viewRange * 1.25f : viewRange;
             Unit closest = Units.closestEnemy(unit.team, unit.x, unit.y, scanRange,
                 u -> !u.dead && (unit.type.targetAir || !u.isFlying()) && u.hittable());
@@ -186,6 +182,8 @@ public class MeleeCommandAI extends CommandAI{
                     unit.vel.scl(0.65f);
                 }
             }
+        }else if(edgeDst > holdDist + 2f && unit.vel.len() < unit.type.speed * 0.35f && !isPathBlocked(aimAngle, 12f)){
+            unit.moveAt(Tmp.v1.trns(aimAngle, unit.type.speed));
         }
     }
 
@@ -213,4 +211,4 @@ public class MeleeCommandAI extends CommandAI{
         }
         return false;
     }
-                                        }
+        }
