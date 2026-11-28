@@ -1,34 +1,64 @@
 package abilityadditions.melee.units;
 
 import abilityadditions.melee.core.*;
+import abilityadditions.melee.core.MeleeType.*;
 import arc.*;
+import arc.audio.*;
+import arc.files.*;
 import arc.graphics.*;
 import arc.graphics.g2d.*;
 import arc.math.*;
+import arc.scene.ui.layout.*;
 import arc.struct.*;
 import arc.util.*;
+import mindustry.*;
 import mindustry.ai.types.*;
 import mindustry.content.*;
 import mindustry.entities.*;
+import mindustry.entities.abilities.*;
 import mindustry.entities.units.*;
 import mindustry.game.EventType.*;
 import mindustry.gen.*;
 import mindustry.graphics.*;
+import mindustry.mod.*;
 import mindustry.type.*;
+import mindustry.ui.*;
 
 public class Ixen{
 
     public static UnitType ixen;
     public static StatusEffect sprintBuff;
-    public static Effect trailSmokeEffect;
+    public static StatusEffect kickStun;
 
-    private static final IntMap<ArmAnimState> armStates = new IntMap<>();
+    public static Effect trailSmokeEffect;
+    public static Effect punchStrikeEffect;
+    public static Effect rightKickStrikeEffect;
+
+    public static TextureRegion punchRegion;
+    public static TextureRegion rightKickRegion;
+
+    public static Sound punchSound = Sounds.none;
+    public static Sound heavyPunchSound = Sounds.none;
+
+    private static final IntMap<IxenState> states = new IntMap<>();
     private static boolean eventsHooked = false;
+    private static boolean soundsLoaded = false;
+
+    private static final int KICK_HITS_REQUIRED = 9;
+    private static final float KICK_STUN_TICKS = 300f;
 
     public static void load(){
         sprintBuff = new StatusEffect("ixen-sprint"){{
             speedMultiplier = 1.28f;
             show = false;
+        }};
+
+        kickStun = new StatusEffect("ixen-kick-stun"){{
+            disarm = true;
+            speedMultiplier = 0.04f;
+            reloadMultiplier = 0.04f;
+            color = Pal.accent;
+            show = true;
         }};
 
         trailSmokeEffect = new Effect(20f, e -> {
@@ -37,26 +67,200 @@ public class Ixen{
             Fill.circle(e.x, e.y, 1.9f * e.fout() + 0.55f);
         }).layer(Layer.debris);
 
+        punchStrikeEffect = new Effect(14f, e -> {
+            float prog = Interp.pow2Out.apply(e.fin());
+            float alpha = e.fout();
+            float startDist = 5f;
+            float endDist = 17f;
+
+            if(punchRegion != null && punchRegion.found()){
+                float w = punchRegion.width * punchRegion.scl();
+                float h = punchRegion.height * punchRegion.scl();
+
+                for(int t = 3; t >= 1; t--){
+                    float tf = Math.max(0f, prog - t * 0.16f);
+                    float dist = Mathf.lerp(startDist, endDist, tf);
+                    float px = e.x + Angles.trnsx(e.rotation, dist);
+                    float py = e.y + Angles.trnsy(e.rotation, dist);
+                    Draw.color(e.color, Color.white, 0.15f);
+                    Draw.alpha(alpha * (0.26f / t));
+                    Draw.rect(punchRegion, px, py, w * (1f - t * 0.06f), h * (1f - t * 0.06f), e.rotation - 90f);
+                }
+
+                float mainDist = Mathf.lerp(startDist, endDist, prog);
+                float mx = e.x + Angles.trnsx(e.rotation, mainDist);
+                float my = e.y + Angles.trnsy(e.rotation, mainDist);
+                Draw.color(e.color, Color.white, 0.30f);
+                Draw.alpha(alpha * 0.95f);
+                Draw.rect(punchRegion, mx, my, w, h, e.rotation - 90f);
+            }else{
+                float mx = e.x + Angles.trnsx(e.rotation, Mathf.lerp(startDist, endDist, prog));
+                float my = e.y + Angles.trnsy(e.rotation, Mathf.lerp(startDist, endDist, prog));
+                Draw.color(e.color, Color.white, 0.3f);
+                Draw.alpha(alpha * 0.85f);
+                Drawf.tri(mx, my, 4.5f * alpha, 11f, e.rotation);
+            }
+            Draw.color();
+        }).layer(Layer.effect);
+
+        rightKickStrikeEffect = new Effect(20f, e -> {
+            float prog = Interp.pow2Out.apply(e.fin());
+            float alpha = e.fout();
+            float startDist = 6f;
+            float endDist = 21f;
+
+            if(rightKickRegion != null && rightKickRegion.found()){
+                float w = rightKickRegion.width * rightKickRegion.scl();
+                float h = rightKickRegion.height * rightKickRegion.scl();
+
+                for(int t = 4; t >= 1; t--){
+                    float tf = Math.max(0f, prog - t * 0.13f);
+                    float dist = Mathf.lerp(startDist, endDist, tf);
+                    float kx = e.x + Angles.trnsx(e.rotation, dist);
+                    float ky = e.y + Angles.trnsy(e.rotation, dist);
+                    Draw.color(e.color, Color.white, 0.2f);
+                    Draw.alpha(alpha * (0.30f / t));
+                    Draw.rect(rightKickRegion, kx, ky, w * (1f - t * 0.05f), h * (1f - t * 0.05f), e.rotation - 90f);
+                }
+
+                float mainDist = Mathf.lerp(startDist, endDist, prog);
+                float mx = e.x + Angles.trnsx(e.rotation, mainDist);
+                float my = e.y + Angles.trnsy(e.rotation, mainDist);
+                Draw.color(e.color, Color.white, 0.38f);
+                Draw.alpha(alpha);
+                Draw.rect(rightKickRegion, mx, my, w * 1.08f, h * 1.08f, e.rotation - 90f);
+            }else{
+                float mx = e.x + Angles.trnsx(e.rotation, Mathf.lerp(startDist, endDist, prog));
+                float my = e.y + Angles.trnsy(e.rotation, Mathf.lerp(startDist, endDist, prog));
+                Draw.color(e.color, Color.white, 0.35f);
+                Draw.alpha(alpha * 0.9f);
+                Drawf.tri(mx, my, 7f * alpha, 15f, e.rotation);
+            }
+
+            Draw.color(e.color, Color.white, 0.4f);
+            Draw.alpha(alpha * 0.8f);
+            Lines.stroke(2.4f * alpha);
+            Lines.arc(e.x, e.y, 12f + prog * 13f, 0.34f, e.rotation - 61f);
+            Draw.color();
+        }).layer(Layer.effect);
+
+        MeleeType jabStrike = new MeleeType(){{
+            shape = MeleeShape.THRUST;
+            reach = 23f;
+            halfWidth = 6.5f;
+            damage = 32f;
+            buildingDamageMultiplier = 1.15f;
+            maxTargets = 2;
+            hitGround = true;
+            hitAir = false;
+            knockback = 0.5f;
+            hitEffect = Fx.hitBulletColor;
+        }};
+
+        MeleeType crossStrike = new MeleeType(){{
+            shape = MeleeShape.THRUST;
+            reach = 25f;
+            halfWidth = 7.5f;
+            damage = 46f;
+            buildingDamageMultiplier = 1.25f;
+            maxTargets = 3;
+            hitGround = true;
+            hitAir = false;
+            knockback = 2.2f;
+            hitEffect = Fx.hitBulletColor;
+        }};
+
+        MeleeType rightKickStrike = new MeleeType(){{
+            shape = MeleeShape.ARC;
+            reach = 28f;
+            arcAngle = 115f;
+            damage = 92f;
+            buildingDamageMultiplier = 1.4f;
+            maxTargets = 4;
+            hitGround = true;
+            hitAir = false;
+            knockback = 5.4f;
+            lungeSpeed = 0.85f;
+            shake = 1.6f;
+            hitStatus = kickStun;
+            hitStatusDuration = KICK_STUN_TICKS;
+            hitEffect = Fx.flakExplosion;
+        }};
+
+        MeleeWeapon ixenPunch = new MeleeWeapon("", jabStrike){{
+            x = 0f;
+            y = 2f;
+            shootX = 0f;
+            shootY = 3f;
+            reload = 20f;
+            mirror = false;
+            rotate = false;
+            recoil = 0f;
+            shootCone = 50f;
+            shootSound = Sounds.none;
+
+            strikeHandler = (unit, mount, ox, oy, angle, weapon) -> {
+                IxenState st = getState(unit.id);
+                Color teamCol = unit.team.color;
+
+                if(st.kickHits >= KICK_HITS_REQUIRED){
+                    st.kickHits = 0;
+                    st.kickAnim = 1f;
+                    rightKickStrike.accentColor = teamCol;
+                    rightKickStrike.execute(unit, unit.x, unit.y, angle);
+                    rightKickStrikeEffect.at(unit.x, unit.y, angle, teamCol);
+                    playSound(heavyPunchSound, unit.x, unit.y, Mathf.random(0.95f, 1.05f), 0.9f);
+                    return;
+                }
+
+                st.isCross = !st.isCross;
+                int strikeSign = st.isCross ? 1 : -1;
+                if(strikeSign < 0){
+                    st.leftPunchAnim = 1f;
+                    st.leftCrossStyle = false;
+                }else{
+                    st.rightPunchAnim = 1f;
+                    st.rightCrossStyle = true;
+                }
+
+                float shoulderSide = strikeSign * 4.2f;
+                float spawnX = unit.x + Angles.trnsx(angle - 90f, shoulderSide) + Angles.trnsx(angle, 2f);
+                float spawnY = unit.y + Angles.trnsy(angle - 90f, shoulderSide) + Angles.trnsy(angle, 2f);
+
+                MeleeType activeStrike = st.isCross ? crossStrike : jabStrike;
+                activeStrike.accentColor = teamCol;
+                int hits = activeStrike.execute(unit, unit.x, unit.y, angle);
+
+                punchStrikeEffect.at(spawnX, spawnY, angle, teamCol);
+                playSound(punchSound, unit.x, unit.y, st.isCross ? Mathf.random(0.88f, 0.96f) : Mathf.random(1.02f, 1.12f), 0.78f);
+
+                if(hits > 0){
+                    st.kickHits = Math.min(KICK_HITS_REQUIRED, st.kickHits + 1);
+                }
+            };
+        }};
+
         ixen = new UnitType("ixen"){
             public TextureRegion armRegion;
             public TextureRegion armOutlineRegion;
+            public TextureRegion legOutlineRegion;
             private boolean outlineLookedUp = false;
 
             {
                 localizedName = "Ixen";
-                description = "Tier 1 agile melee unit. Sprints across long gaps, lunges into close combat, and circles targets at arm length.";
+                description = "Tier 1 agile melee brawler. Sprints across long gaps, lunges into close combat, alternates jabs & crosses, and unleashes a 2x-damage 5s-stun Right Kick every 9 hits.";
                 constructor = MechUnit::create;
                 aiController = () -> createAI();
                 controller = u -> createAI();
 
                 flying = false;
-                speed = 0.60f;
-                rotateSpeed = 6.5f;
-                baseRotateSpeed = 6.5f;
+                speed = 0.62f;
+                rotateSpeed = 11f;
+                baseRotateSpeed = 11f;
                 hitSize = 9f;
                 range = 24f;
-                health = 180f;
-                armor = 2f;
+                health = 270f;
+                armor = 6f;
                 drag = 0.35f;
                 accel = 0.55f;
 
@@ -73,6 +277,9 @@ public class Ixen{
                 stepSoundPitchRange = UnitTypes.dagger != null ? UnitTypes.dagger.stepSoundPitchRange : 0.1f;
 
                 allowedInPayloads = true;
+
+                weapons.add(ixenPunch);
+                abilities.add(new RightKickAbility());
             }
 
             @Override
@@ -80,7 +287,17 @@ public class Ixen{
                 super.load();
                 armRegion = Core.atlas.find(name + "-arm");
                 armOutlineRegion = Core.atlas.find(name + "-arm-outline");
+                legOutlineRegion = Core.atlas.find(name + "-leg-outline");
                 outlineLookedUp = false;
+
+                punchRegion = Core.atlas.find("ability-additions-punch");
+                if(!punchRegion.found()){
+                    punchRegion = Core.atlas.find("punch");
+                }
+                rightKickRegion = Core.atlas.find("ability-additions-right-kick");
+                if(!rightKickRegion.found()){
+                    rightKickRegion = Core.atlas.find("right-kick");
+                }
             }
 
             @Override
@@ -108,16 +325,7 @@ public class Ixen{
                     unit.controller(next);
                 }
 
-                ArmAnimState st = getState(unit.id);
-                float moveSpeed = unit.vel.len();
-                float moveFrac = Mathf.clamp(moveSpeed / Math.max(0.05f, speed));
-                if(moveFrac > 0.04f){
-                    st.walkPhase += moveSpeed * Time.delta;
-                    st.moveBlend = Mathf.lerpDelta(st.moveBlend, Math.min(1f, moveFrac), 0.25f);
-                }else{
-                    st.moveBlend = Mathf.lerpDelta(st.moveBlend, 0f, 0.22f);
-                }
-
+                IxenState st = getState(unit.id);
                 boolean sprinting = false;
                 boolean lunging = false;
                 if(unit.controller() instanceof MeleeCommandAI ai){
@@ -125,8 +333,29 @@ public class Ixen{
                     lunging = ai.dashTimer > 0f;
                 }
 
+                float moveSpeed = unit.vel.len();
+                float moveFrac = Mathf.clamp(moveSpeed / Math.max(0.05f, speed));
+                if(moveFrac > 0.04f){
+                    float tempo = sprinting ? 1.38f : 1.0f;
+                    st.walkPhase += moveSpeed * tempo * Time.delta;
+                    st.moveBlend = Mathf.lerpDelta(st.moveBlend, Math.min(1f, moveFrac), 0.25f);
+                }else{
+                    st.moveBlend = Mathf.lerpDelta(st.moveBlend, 0f, 0.20f);
+                }
+
+                st.idlePhase += Time.delta * 0.075f;
                 st.sprintBlend = Mathf.lerpDelta(st.sprintBlend, sprinting ? 1f : 0f, 0.18f);
                 st.lungeBlend = Mathf.lerpDelta(st.lungeBlend, lunging ? 1f : 0f, lunging ? 0.45f : 0.16f);
+
+                if(st.leftPunchAnim > 0f){
+                    st.leftPunchAnim = Math.max(0f, st.leftPunchAnim - Time.delta / 13f);
+                }
+                if(st.rightPunchAnim > 0f){
+                    st.rightPunchAnim = Math.max(0f, st.rightPunchAnim - Time.delta / 14f);
+                }
+                if(st.kickAnim > 0f){
+                    st.kickAnim = Math.max(0f, st.kickAnim - Time.delta / 18f);
+                }
 
                 if(sprinting){
                     unit.apply(sprintBuff, 8f);
@@ -144,46 +373,119 @@ public class Ixen{
 
             @Override
             public void drawMech(Mechc mech){
-                super.drawMech(mech);
-                if(armRegion == null || !armRegion.found()) return;
+                Unit unit = (Unit)mech;
 
                 if(!outlineLookedUp || armOutlineRegion == null || !armOutlineRegion.found()){
                     armOutlineRegion = Core.atlas.find(name + "-arm-outline");
+                    legOutlineRegion = Core.atlas.find(name + "-leg-outline");
                     outlineLookedUp = true;
                 }
 
-                Unit unit = (Unit)mech;
-                ArmAnimState st = armStates.get(unit.id);
+                IxenState st = states.get(unit.id);
                 float walkPhase = st != null ? st.walkPhase : 0f;
                 float moveBlend = st != null ? st.moveBlend : 0f;
                 float sprintBlend = st != null ? st.sprintBlend : 0f;
                 float lungeBlend = st != null ? st.lungeBlend : 0f;
+                float idlePhase = st != null ? st.idlePhase : 0f;
 
-                float swingAmp = Mathf.lerp(2.0f, 2.7f, sprintBlend);
-                float walkWave = Mathf.sin(walkPhase, 4.4f, swingAmp) * moveBlend;
-                float sprintBack = -1.35f * sprintBlend;
-                float lungeForward = 2.6f * lungeBlend;
+                float gaitWave = Mathf.sin(walkPhase, 4.2f, 1f) * moveBlend;
+                float idleSway = Mathf.sin(idlePhase) * (1f - moveBlend * 0.7f);
 
-                float w = armRegion.width * armRegion.scl();
-                float h = armRegion.height * armRegion.scl();
+                float legStride = Mathf.lerp(1.45f, 2.0f, sprintBlend);
+                float armStride = Mathf.lerp(1.35f, 1.95f, sprintBlend);
+                float armSwingDeg = Mathf.lerp(11f, 17f, sprintBlend);
 
-                for(int i : Mathf.signs){
-                    float forwardShift = i * walkWave + sprintBack + lungeForward;
-                    float sideShift = i * (0.35f * sprintBlend - 0.35f * lungeBlend);
-                    float armX = unit.x + Angles.trnsx(unit.rotation, forwardShift) + Angles.trnsx(unit.rotation - 90f, sideShift);
-                    float armY = unit.y + Angles.trnsy(unit.rotation, forwardShift) + Angles.trnsy(unit.rotation - 90f, sideShift);
-                    float armRot = unit.rotation - 90f + i * (walkWave * 2.2f - sprintBlend * 7f + lungeBlend * 9f);
+                float legRot = unit.rotation - 90f;
+                float kickVal = st != null ? st.kickAnim : 0f;
+                float kickCurve = kickVal > 0f ? Mathf.sin(kickVal * Mathf.PI) : 0f;
 
-                    if(armOutlineRegion != null && armOutlineRegion.found()){
-                        applyOutlineColor(unit);
-                        Draw.rect(armOutlineRegion, armX, armY,
-                            armOutlineRegion.width * armOutlineRegion.scl() * i,
-                            armOutlineRegion.height * armOutlineRegion.scl(),
-                            armRot);
+                // 1. Legs (Left i=-1, Right i=+1)
+                if(legRegion != null && legRegion.found()){
+                    float lw = legRegion.width * legRegion.scl();
+                    float lh = legRegion.height * legRegion.scl();
+
+                    for(int i : Mathf.signs){
+                        // Left leg moves +gaitWave, Right leg moves -gaitWave
+                        float legShift = (-i * gaitWave) * legStride;
+                        float legAngleOffset = (-i * gaitWave) * 4f;
+
+                        // Right Kick animation on right leg (i == 1)
+                        if(i == 1 && kickVal > 0f){
+                            if(kickVal > 0.72f){
+                                float wind = (kickVal - 0.72f) / 0.28f;
+                                legShift -= wind * 1.8f;
+                                legAngleOffset -= wind * 16f;
+                            }else{
+                                legShift += kickCurve * 4.2f;
+                                legAngleOffset += kickCurve * 26f;
+                            }
+                        }
+
+                        float lx = unit.x + Angles.trnsx(unit.rotation, legShift);
+                        float ly = unit.y + Angles.trnsy(unit.rotation, legShift);
+
+                        if(legOutlineRegion != null && legOutlineRegion.found()){
+                            applyOutlineColor(unit);
+                            Draw.rect(legOutlineRegion, lx, ly,
+                                legOutlineRegion.width * legOutlineRegion.scl() * i,
+                                legOutlineRegion.height * legOutlineRegion.scl(),
+                                legRot + legAngleOffset);
+                        }
+                        applyColor(unit);
+                        Draw.rect(legRegion, lx, ly, lw * i, lh, legRot + legAngleOffset);
                     }
+                }
 
+                // 2. Hip base
+                if(baseRegion != null && baseRegion.found()){
                     applyColor(unit);
-                    Draw.rect(armRegion, armX, armY, w * i, h, armRot);
+                    Draw.rect(baseRegion, unit.x, unit.y, legRot);
+                }
+
+                // 3. Arms (strictly opposite to legs: +i * gaitWave)
+                if(armRegion != null && armRegion.found()){
+                    float aw = armRegion.width * armRegion.scl();
+                    float ah = armRegion.height * armRegion.scl();
+
+                    for(int i : Mathf.signs){
+                        float armGait = i * gaitWave;
+                        float forwardShift = armGait * armStride - 1.1f * sprintBlend + 2.2f * lungeBlend;
+                        float sideShift = i * (0.3f * sprintBlend - 0.3f * lungeBlend);
+                        float rotOffset = i * (armGait * armSwingDeg + idleSway * 2.5f - sprintBlend * 6f + lungeBlend * 8f);
+
+                        // Punch jab / cross extension on the active arm
+                        float punchVal = st != null ? (i < 0 ? st.leftPunchAnim : st.rightPunchAnim) : 0f;
+                        boolean crossStyle = st != null && (i < 0 ? st.leftCrossStyle : st.rightCrossStyle);
+                        if(punchVal > 0f){
+                            float snap = punchVal > 0.7f
+                                ? Interp.pow2Out.apply((1f - punchVal) / 0.3f)
+                                : Interp.pow2In.apply(punchVal / 0.7f);
+                            forwardShift += snap * (crossStyle ? 4.0f : 3.4f);
+                            sideShift -= i * snap * (crossStyle ? 1.5f : 0.6f);
+                            rotOffset += i * snap * (crossStyle ? 24f : 10f);
+                        }
+
+                        // Guard twist during Right Kick
+                        if(kickCurve > 0f){
+                            forwardShift -= i * kickCurve * 1.1f;
+                            rotOffset -= i * kickCurve * 12f;
+                        }
+
+                        float armX = unit.x + Angles.trnsx(unit.rotation, forwardShift) + Angles.trnsx(unit.rotation - 90f, sideShift);
+                        float armY = unit.y + Angles.trnsy(unit.rotation, forwardShift) + Angles.trnsy(unit.rotation - 90f, sideShift);
+                        float armRot = unit.rotation - 90f + rotOffset;
+
+                        if(armOutlineRegion != null && armOutlineRegion.found()){
+                            applyOutlineColor(unit);
+                            Draw.rect(armOutlineRegion, armX, armY,
+                                armOutlineRegion.width * armOutlineRegion.scl() * i,
+                                armOutlineRegion.height * armOutlineRegion.scl(),
+                                armRot);
+                        }
+
+                        applyColor(unit);
+                        Draw.rect(armRegion, armX, armY, aw * i, ah, armRot);
+                    }
                 }
 
                 Draw.color();
@@ -192,6 +494,7 @@ public class Ixen{
     }
 
     public static void init(){
+        resolveSounds();
         if(eventsHooked) return;
         eventsHooked = true;
 
@@ -201,13 +504,37 @@ public class Ixen{
             }
         });
 
-        Events.on(ResetEvent.class, e -> armStates.clear());
+        Events.on(ResetEvent.class, e -> states.clear());
+    }
+
+    public static class RightKickAbility extends Ability{
+        @Override
+        public String localized(){
+            return "Right Kick";
+        }
+
+        @Override
+        public void addStats(Table t){
+            t.add("[lightgray]Every 9 confirmed melee hits empower the next attack into a Right Kick dealing 2x damage (92) and stunning enemies hit for 5 seconds.[]").wrap().width(320f);
+        }
+
+        @Override
+        public void displayBars(Unit unit, Table bars){
+            IxenState st = getState(unit.id);
+            bars.add(new Bar(
+                () -> st.kickHits >= KICK_HITS_REQUIRED
+                    ? "RIGHT KICK READY!"
+                    : "Right Kick: " + st.kickHits + "/" + KICK_HITS_REQUIRED,
+                () -> st.kickHits >= KICK_HITS_REQUIRED ? Pal.accent : unit.team.color,
+                () -> Mathf.clamp((float)st.kickHits / KICK_HITS_REQUIRED)
+            )).row();
+        }
     }
 
     private static MeleeCommandAI createAI(){
         MeleeCommandAI ai = new MeleeCommandAI();
         ai.viewRange = 160f;
-        ai.meleeEdgeReach = 22f;
+        ai.meleeEdgeReach = 24f;
         ai.desiredEdgeDist = 16f;
         ai.tooCloseEdgeDist = 10f;
         ai.walkStartEdgeDist = 80f;
@@ -227,19 +554,73 @@ public class Ixen{
         trailSmokeEffect.at(bx, by);
     }
 
-    private static ArmAnimState getState(int id){
-        ArmAnimState st = armStates.get(id);
+    private static void resolveSounds(){
+        if(soundsLoaded || Vars.headless) return;
+        soundsLoaded = true;
+        punchSound = loadSoundOgg("punch");
+        heavyPunchSound = loadSoundOgg("heavy-punch");
+    }
+
+    private static Sound loadSoundOgg(String baseName){
+        try{
+            String[] keys = {baseName + ".ogg", "sounds/" + baseName + ".ogg"};
+            for(String k : keys){
+                Sound existing = Core.assets.getOrNull(k, Sound.class);
+                if(existing != null) return existing;
+            }
+            Fi target = null;
+            if(Vars.tree.get("sounds/" + baseName + ".ogg").exists()){
+                target = Vars.tree.get("sounds/" + baseName + ".ogg");
+            }else{
+                Mods.LoadedMod mod = Vars.mods.locateMod("ability-additions");
+                if(mod != null && mod.root != null){
+                    String[] rels = {"sounds/" + baseName + ".ogg", "assets/sounds/" + baseName + ".ogg"};
+                    for(String rel : rels){
+                        Fi fi = mod.root.child(rel);
+                        if(fi.exists()){
+                            target = fi;
+                            break;
+                        }
+                    }
+                }
+            }
+            if(target != null && target.exists()){
+                return new Sound(target);
+            }
+        }catch(Throwable t){
+            Log.err("[AbilityAdditions] Failed loading sound " + baseName + ".ogg", t);
+        }
+        return Sounds.none;
+    }
+
+    private static void playSound(Sound s, float x, float y, float pitch, float vol){
+        if(Vars.headless || s == null || s == Sounds.none) return;
+        s.at(x, y, pitch, vol);
+    }
+
+    private static IxenState getState(int id){
+        IxenState st = states.get(id);
         if(st == null){
-            st = new ArmAnimState();
-            armStates.put(id, st);
+            st = new IxenState();
+            states.put(id, st);
         }
         return st;
     }
 
-    private static class ArmAnimState{
+    private static class IxenState{
         float walkPhase = 0f;
         float moveBlend = 0f;
         float sprintBlend = 0f;
         float lungeBlend = 0f;
+        float idlePhase = 0f;
+
+        boolean isCross = false;
+        float leftPunchAnim = 0f;
+        float rightPunchAnim = 0f;
+        boolean leftCrossStyle = false;
+        boolean rightCrossStyle = false;
+
+        int kickHits = 0;
+        float kickAnim = 0f;
     }
-                            }
+}
