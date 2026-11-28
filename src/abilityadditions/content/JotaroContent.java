@@ -1188,7 +1188,11 @@ public class JotaroContent{
             timeStopZones.get(i).timer -= Time.delta;
         }
 
-        IntFloatMap unitFlowMap = new IntFloatMap();
+        for(IntMap.Entry<FrozenUnit> entry : frozenUnits){
+            entry.value.insideThisTick = false;
+            entry.value.flow = 1f;
+        }
+
         for(int i = 0; i < timeStopZones.size; i++){
             TimeStopZone zone = timeStopZones.get(i);
             if(zone.timer <= 0f) continue;
@@ -1203,48 +1207,36 @@ public class JotaroContent{
 
             Units.nearbyEnemies(zone.team, zone.x, zone.y, Math.max(24f, activeR), u -> {
                 if(u != null && !u.dead){
-                    float prev = unitFlowMap.get(u.id, 1f);
-                    if(flow < prev){
-                        unitFlowMap.put(u.id, flow);
+                    FrozenUnit fu = frozenUnits.get(u.id);
+                    if(fu == null){
+                        fu = new FrozenUnit();
+                        fu.unit = u;
+                        fu.lastX = u.x;
+                        fu.lastY = u.y;
+                        fu.lastRot = u.rotation;
+                        frozenUnits.put(u.id, fu);
+                    }
+                    fu.insideThisTick = true;
+                    if(flow < fu.flow){
+                        fu.flow = flow;
                     }
                 }
             });
         }
 
+        IntSeq deadUnitKeys = new IntSeq();
         for(IntMap.Entry<FrozenUnit> entry : frozenUnits){
             FrozenUnit fu = entry.value;
-            if(fu.unit == null || fu.unit.dead || !fu.unit.isAdded() || !unitFlowMap.containsKey(entry.key)){
-                if(fu.unit != null && !fu.unit.dead){
-                    fu.unit.unapply(timeStopFreeze);
+            Unit u = fu.unit;
+            if(!fu.insideThisTick || u == null || u.dead || !u.isAdded()){
+                if(u != null && !u.dead){
+                    u.unapply(timeStopFreeze);
                 }
-                fu.markedRemove = true;
-            }
-        }
-        Seq<Integer> deadUnitKeys = new Seq<>();
-        for(IntMap.Entry<FrozenUnit> entry : frozenUnits){
-            if(entry.value.markedRemove) deadUnitKeys.add(entry.key);
-        }
-        for(int i = 0; i < deadUnitKeys.size; i++){
-            frozenUnits.remove(deadUnitKeys.get(i));
-        }
-
-        IntFloatMap.Entries uEntries = unitFlowMap.entries();
-        while(uEntries.hasNext()){
-            IntFloatMap.Entry entry = uEntries.next();
-            Unit u = Groups.unit.getByID(entry.key);
-            if(u == null || u.dead) continue;
-            float flow = entry.value;
-
-            FrozenUnit fu = frozenUnits.get(u.id);
-            if(fu == null){
-                fu = new FrozenUnit();
-                fu.unit = u;
-                fu.lastX = u.x;
-                fu.lastY = u.y;
-                fu.lastRot = u.rotation;
-                frozenUnits.put(u.id, fu);
+                deadUnitKeys.add(entry.key);
+                continue;
             }
 
+            float flow = fu.flow;
             float dx = u.x - fu.lastX;
             float dy = u.y - fu.lastY;
             if(dx * dx + dy * dy > 34f * 34f){
@@ -1303,8 +1295,14 @@ public class JotaroContent{
                 u.unapply(timeStopFreeze);
             }
         }
+        for(int i = 0; i < deadUnitKeys.size; i++){
+            frozenUnits.remove(deadUnitKeys.get(i));
+        }
 
-        IntFloatMap bulletFlowMap = new IntFloatMap();
+        for(IntMap.Entry<FrozenBullet> entry : frozenBullets){
+            entry.value.insideThisTick = false;
+        }
+
         for(Bullet b : Groups.bullet){
             if(b == null || !b.isAdded()) continue;
             if(b.type instanceof ContinuousBulletType || b.type instanceof LaserBulletType || b.type instanceof PointLaserBulletType) continue;
@@ -1320,31 +1318,8 @@ public class JotaroContent{
                     bestFlow = Math.min(bestFlow, getZoneTimeFlow(zone));
                 }
             }
-            if(insideAny){
-                bulletFlowMap.put(b.id, bestFlow);
-            }
-        }
 
-        Seq<Integer> releasedBullets = new Seq<>();
-        for(IntMap.Entry<FrozenBullet> entry : frozenBullets){
-            FrozenBullet fb = entry.value;
-            if(fb.bullet == null || !fb.bullet.isAdded()){
-                releasedBullets.add(entry.key);
-            }else if(!bulletFlowMap.containsKey(entry.key)){
-                fb.bullet.vel.set(fb.savedVel);
-                releasedBullets.add(entry.key);
-            }
-        }
-        for(int i = 0; i < releasedBullets.size; i++){
-            frozenBullets.remove(releasedBullets.get(i));
-        }
-
-        IntFloatMap.Entries bEntries = bulletFlowMap.entries();
-        while(bEntries.hasNext()){
-            IntFloatMap.Entry entry = bEntries.next();
-            Bullet b = Groups.bullet.getByID(entry.key);
-            if(b == null || !b.isAdded()) continue;
-            float flow = entry.value;
+            if(!insideAny) continue;
 
             FrozenBullet fb = frozenBullets.get(b.id);
             if(fb == null){
@@ -1356,22 +1331,37 @@ public class JotaroContent{
                 fb.lastTime = b.time;
                 frozenBullets.put(b.id, fb);
             }
+            fb.insideThisTick = true;
 
-            if(flow <= 0.01f){
+            if(bestFlow <= 0.01f){
                 b.set(fb.lastX, fb.lastY);
                 b.vel.setZero();
                 b.time = fb.lastTime;
             }else{
                 float dx = b.x - fb.lastX;
                 float dy = b.y - fb.lastY;
-                b.set(fb.lastX + dx * flow, fb.lastY + dy * flow);
+                b.set(fb.lastX + dx * bestFlow, fb.lastY + dy * bestFlow);
                 float dt = Math.max(0f, b.time - fb.lastTime);
-                b.time = fb.lastTime + dt * flow;
-                b.vel.set(fb.savedVel).scl(flow);
+                b.time = fb.lastTime + dt * bestFlow;
+                b.vel.set(fb.savedVel).scl(bestFlow);
                 fb.lastX = b.x;
                 fb.lastY = b.y;
                 fb.lastTime = b.time;
             }
+        }
+
+        IntSeq releasedBullets = new IntSeq();
+        for(IntMap.Entry<FrozenBullet> entry : frozenBullets){
+            FrozenBullet fb = entry.value;
+            if(fb.bullet == null || !fb.bullet.isAdded()){
+                releasedBullets.add(entry.key);
+            }else if(!fb.insideThisTick){
+                fb.bullet.vel.set(fb.savedVel);
+                releasedBullets.add(entry.key);
+            }
+        }
+        for(int i = 0; i < releasedBullets.size; i++){
+            frozenBullets.remove(releasedBullets.get(i));
         }
 
         for(int i = timeStopZones.size - 1; i >= 0; i--){
@@ -2427,13 +2417,15 @@ public class JotaroContent{
         Unit unit;
         float lastX, lastY, lastRot;
         float[] savedReloads;
-        boolean markedRemove = false;
+        float flow = 1f;
+        boolean insideThisTick = false;
     }
 
     private static class FrozenBullet{
         Bullet bullet;
         final Vec2 savedVel = new Vec2();
         float lastX, lastY, lastTime;
+        boolean insideThisTick = false;
     }
 
     private static class ShakenUnit{
@@ -2510,4 +2502,3 @@ public class JotaroContent{
         boolean resolveTriggeredBelow = false;
     }
 }
- 
