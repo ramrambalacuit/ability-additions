@@ -7,6 +7,7 @@ import mindustry.*;
 import mindustry.ai.*;
 import mindustry.ai.types.*;
 import mindustry.entities.*;
+import mindustry.entities.units.*;
 import mindustry.game.*;
 import mindustry.gen.*;
 import mindustry.world.*;
@@ -14,7 +15,7 @@ import mindustry.world.*;
 public class MeleeCommandAI extends CommandAI{
 
     public float viewRange = 160f;
-    public float meleeEdgeReach = 22f;
+    public float meleeEdgeReach = 24f;
     public float desiredEdgeDist = 16f;
     public float tooCloseEdgeDist = 10f;
 
@@ -32,6 +33,7 @@ public class MeleeCommandAI extends CommandAI{
     public boolean canSprint = true;
     public boolean canLunge = true;
     public boolean canZigzag = true;
+    public boolean marchEnemyCore = true;
 
     public boolean sprinting = false;
     public float lungeCooldown = 0f;
@@ -64,7 +66,7 @@ public class MeleeCommandAI extends CommandAI{
             }
         }
 
-        if(attackTarget == null && targetPos == null && !hasStance(UnitStance.holdFire)){
+        if(attackTarget == null && !hasStance(UnitStance.holdFire)){
             float scanRange = threatAlertTimer > 0f ? viewRange * 1.25f : viewRange;
             Unit closest = Units.closestEnemy(unit.team, unit.x, unit.y, scanRange,
                 u -> !u.dead && (unit.type.targetAir || !u.isFlying()) && u.hittable());
@@ -85,6 +87,9 @@ public class MeleeCommandAI extends CommandAI{
         lungeCooldown = Math.max(0f, lungeCooldown - Time.delta);
         threatAlertTimer = Math.max(0f, threatAlertTimer - Time.delta);
 
+        boolean holdFire = hasStance(UnitStance.holdFire);
+        boolean aiMarching = marchEnemyCore && !unit.isPlayer() && unit.team != Vars.state.rules.defaultTeam;
+
         super.updateUnit();
 
         if(dashTimer > 0f){
@@ -96,12 +101,45 @@ public class MeleeCommandAI extends CommandAI{
                 unit.vel.trns(dashAngle, dashSpeed);
                 unit.lookAt(dashAngle);
             }
+            attackWithinReach(holdFire);
             return;
         }
 
         if(attackTarget == null){
-            boolean hasMoveGoal = targetPos != null && !unit.within(targetPos, 12f);
+            if(aiMarching && targetPos == null){
+                Building core = unit.closestEnemyCore();
+                if(core != null){
+                    float coreEdge = Math.max(0f, unit.dst(core) - unit.hitSize * 0.5f - core.hitSize() * 0.5f);
+                    if(coreEdge <= viewRange){
+                        attackTarget = core;
+                    }else{
+                        pathfind(Pathfinder.fieldCore);
+                        faceMovement();
+                    }
+                }else{
+                    pathfind(Pathfinder.fieldCore);
+                    faceMovement();
+                }
+            }
+
+            boolean hasMoveGoal = (targetPos != null && !unit.within(targetPos, 12f)) || aiMarching;
             sprinting = canSprint && (hasMoveGoal || unit.vel.len() > unit.type.speed * 0.45f);
+
+            if(!holdFire){
+                Unit closeUnit = Units.closestEnemy(unit.team, unit.x, unit.y, meleeEdgeReach + unit.hitSize * 0.5f + 12f,
+                    u -> !u.dead && (unit.type.targetAir || !u.isFlying()) && u.hittable()
+                        && (unit.dst(u) - unit.hitSize * 0.5f - u.hitSize * 0.5f) <= meleeEdgeReach);
+                if(closeUnit != null){
+                    aimAndStrike(closeUnit);
+                    return;
+                }
+                Building closeBuild = findClosestEnemyBuilding(meleeEdgeReach);
+                if(closeBuild != null){
+                    aimAndStrike(closeBuild);
+                    return;
+                }
+            }
+            stopAttacking();
             return;
         }
 
@@ -132,6 +170,7 @@ public class MeleeCommandAI extends CommandAI{
                 unit.vel.trns(dashAngle, dashSpeed);
                 unit.lookAt(dashAngle);
                 if(onLungeStart != null) onLungeStart.get(unit);
+                attackWithinReach(holdFire);
                 return;
             }
         }
@@ -185,6 +224,57 @@ public class MeleeCommandAI extends CommandAI{
         }else if(edgeDst > holdDist + 2f && unit.vel.len() < unit.type.speed * 0.35f && !isPathBlocked(aimAngle, 12f)){
             unit.moveAt(Tmp.v1.trns(aimAngle, unit.type.speed));
         }
+
+        if(!holdFire && edgeDst <= meleeEdgeReach){
+            aimAndStrike(attackTarget);
+        }else if(!holdFire){
+            Building blocker = findClosestEnemyBuilding(meleeEdgeReach);
+            if(blocker != null){
+                aimAndStrike(blocker);
+            }else{
+                stopAttacking();
+            }
+        }else{
+            stopAttacking();
+        }
+    }
+
+    protected void attackWithinReach(boolean holdFire){
+        if(holdFire){
+            stopAttacking();
+            return;
+        }
+        if(attackTarget != null){
+            float targetRad = attackTarget instanceof Sized s ? s.hitSize() * 0.5f : 4f;
+            float edgeDst = Math.max(0f, unit.dst(attackTarget) - unit.hitSize * 0.5f - targetRad);
+            if(edgeDst <= meleeEdgeReach){
+                aimAndStrike(attackTarget);
+                return;
+            }
+        }
+        stopAttacking();
+    }
+
+    protected void aimAndStrike(Teamc target){
+        unit.lookAt(target);
+        unit.aim(target.getX(), target.getY());
+        unit.controlWeapons(true, true);
+        if(unit.mounts != null){
+            for(WeaponMount m : unit.mounts){
+                m.aimX = target.getX();
+                m.aimY = target.getY();
+                m.shoot = true;
+            }
+        }
+    }
+
+    protected void stopAttacking(){
+        unit.controlWeapons(false, false);
+        if(unit.mounts != null){
+            for(WeaponMount m : unit.mounts){
+                m.shoot = false;
+            }
+        }
     }
 
     protected @Nullable Building findClosestEnemyBuilding(float maxEdgeDist){
@@ -211,4 +301,4 @@ public class MeleeCommandAI extends CommandAI{
         }
         return false;
     }
-        }
+}
