@@ -1,10 +1,10 @@
 package abilityadditions.content;
 
-import abilityadditions.core.*;
-import abilityadditions.core.MeleeType.*;
+import abilityadditions.core.TimeStopWarpShader;
 import arc.*;
 import arc.audio.*;
 import arc.files.*;
+import arc.func.*;
 import arc.graphics.*;
 import arc.graphics.g2d.*;
 import arc.math.*;
@@ -13,6 +13,7 @@ import arc.scene.ui.layout.*;
 import arc.struct.*;
 import arc.util.*;
 import mindustry.*;
+import mindustry.ai.*;
 import mindustry.ai.types.*;
 import mindustry.content.*;
 import mindustry.entities.*;
@@ -28,6 +29,7 @@ import mindustry.type.*;
 import mindustry.ui.*;
 import mindustry.world.*;
 import mindustry.world.blocks.environment.*;
+import mindustry.world.meta.*;
 
 public class JotaroContent{
 
@@ -122,8 +124,8 @@ public class JotaroContent{
     public static void load(){
         loadEffectsAndStatuses();
 
-        MeleeType normalPunch = new MeleeType(){{
-            shape = MeleeShape.ARC;
+        JotaroMeleeType normalPunch = new JotaroMeleeType(){{
+            shape = JotaroMeleeShape.ARC;
             reach = 28f;
             arcAngle = 120f;
             damage = 300f;
@@ -140,8 +142,8 @@ public class JotaroContent{
             hitEffect = Fx.hitBulletColor;
         }};
 
-        MeleeType standNormalPunch = new MeleeType(){{
-            shape = MeleeShape.ARC;
+        JotaroMeleeType standNormalPunch = new JotaroMeleeType(){{
+            shape = JotaroMeleeShape.ARC;
             reach = 32f;
             arcAngle = 135f;
             damage = 450f;
@@ -158,8 +160,8 @@ public class JotaroContent{
             hitEffect = Fx.hitBulletColor;
         }};
 
-        MeleeType heavyFinisher = new MeleeType(){{
-            shape = MeleeShape.ARC;
+        JotaroMeleeType heavyFinisher = new JotaroMeleeType(){{
+            shape = JotaroMeleeShape.ARC;
             reach = 34f;
             arcAngle = 145f;
             damage = 820f;
@@ -178,8 +180,8 @@ public class JotaroContent{
             hitEffect = Fx.flakExplosion;
         }};
 
-        MeleeType standHeavyFinisher = new MeleeType(){{
-            shape = MeleeShape.ARC;
+        JotaroMeleeType standHeavyFinisher = new JotaroMeleeType(){{
+            shape = JotaroMeleeShape.ARC;
             reach = 36f;
             arcAngle = 155f;
             damage = 1150f;
@@ -198,8 +200,8 @@ public class JotaroContent{
             hitEffect = Fx.flakExplosion;
         }};
 
-        MeleeType oraFlurryPunch = new MeleeType(){{
-            shape = MeleeShape.ARC;
+        JotaroMeleeType oraFlurryPunch = new JotaroMeleeType(){{
+            shape = JotaroMeleeShape.ARC;
             reach = 34f;
             arcAngle = 140f;
             damage = 180f;
@@ -216,8 +218,8 @@ public class JotaroContent{
             hitEffect = Fx.hitBulletColor;
         }};
 
-        MeleeType oraFinalFinisher = new MeleeType(){{
-            shape = MeleeShape.ARC;
+        JotaroMeleeType oraFinalFinisher = new JotaroMeleeType(){{
+            shape = JotaroMeleeShape.ARC;
             reach = 38f;
             arcAngle = 160f;
             damage = 1400f;
@@ -236,7 +238,7 @@ public class JotaroContent{
             hitEffect = Fx.flakExplosion;
         }};
 
-        MeleeWeapon jotaroFist = new MeleeWeapon("", normalPunch){{
+        JotaroMeleeWeapon jotaroFist = new JotaroMeleeWeapon("", normalPunch){{
             x = 4.5f;
             y = 1.5f;
             shootX = 0f;
@@ -270,12 +272,12 @@ public class JotaroContent{
 
                 int hits;
                 if(rt.comboStep == 0){
-                    MeleeType finisher = standOut ? standHeavyFinisher : heavyFinisher;
+                    JotaroMeleeType finisher = standOut ? standHeavyFinisher : heavyFinisher;
                     hits = finisher.execute(unit, strikeX, strikeY, angle);
                     playSound(heavyPunchSound, strikeX, strikeY, 1f, 0.9f);
                     rt.comboRecoveryTimer = COMBO_RECOVERY_TICKS;
                 }else{
-                    MeleeType light = standOut ? standNormalPunch : normalPunch;
+                    JotaroMeleeType light = standOut ? standNormalPunch : normalPunch;
                     hits = light.execute(unit, strikeX, strikeY, angle);
                     playSound(punchSound, strikeX, strikeY, Mathf.random(0.95f, 1.06f), 0.78f);
                 }
@@ -418,9 +420,9 @@ public class JotaroContent{
             public void update(Unit unit){
                 super.update(unit);
 
-                if(!(unit.controller() instanceof MeleeCommandAI) && !unit.isPlayer()){
+                if(!(unit.controller() instanceof JotaroCommandAI) && !unit.isPlayer()){
                     UnitController prev = unit.controller();
-                    MeleeCommandAI next = createJotaroController();
+                    JotaroCommandAI next = createJotaroController();
                     if(prev instanceof CommandAI old){
                         next.command = old.command;
                         next.targetPos = old.targetPos;
@@ -444,7 +446,7 @@ public class JotaroContent{
                 if(rt.entranceTimer > 0f){
                     rt.entranceTimer = Math.max(0f, rt.entranceTimer - Time.delta);
                 }
-                if(unit.controller() instanceof MeleeCommandAI ai){
+                if(unit.controller() instanceof JotaroCommandAI ai){
                     ai.standAwakened = rt.standAwakened;
                     ai.standActiveOut = rt.standAwakened || rt.oraActive || rt.oraVanishDelay > 0f || rt.inhaleActive;
                     ai.entrancePaused = rt.entranceTimer > 0f || rt.cutsceneActive;
@@ -551,8 +553,8 @@ public class JotaroContent{
         return best;
     }
 
-    private static MeleeCommandAI createJotaroController(){
-        MeleeCommandAI ai = new MeleeCommandAI();
+    private static JotaroCommandAI createJotaroController(){
+        JotaroCommandAI ai = new JotaroCommandAI();
         ai.onDashAudio = u -> playSound(dashSound, u.x, u.y, Mathf.random(0.95f, 1.1f), 0.95f);
         ai.onTeleportBlink = (u, oldPos) -> {
             teleportClockEffect.at(oldPos.getX(), oldPos.getY(), u.rotation, JOTARO_PURPLE);
@@ -585,7 +587,7 @@ public class JotaroContent{
         if(!showStand) return;
 
         boolean fighting = rt.oraActive || rt.oraVanishDelay > 0f || rt.inhaleActive || rt.cutsceneShowStand || rt.standPunchBob > 0.01f
-            || (unit.controller() instanceof MeleeCommandAI ai && ai.attackTarget != null);
+            || (unit.controller() instanceof JotaroCommandAI ai && ai.attackTarget != null);
 
         float appear = rt.cutsceneShowStand ? 1f : (rt.standAwakened ? Mathf.clamp(rt.standEntranceAnim) : 1f);
         Vec2 spPos = getStandWorldPos(unit, rt, fighting);
@@ -714,7 +716,7 @@ public class JotaroContent{
         Events.on(UnitDamageEvent.class, e -> {
             if(e.unit == null) return;
             if(e.unit.type == jotaro){
-                if(e.unit.controller() instanceof MeleeCommandAI ai){
+                if(e.unit.controller() instanceof JotaroCommandAI ai){
                     ai.notifyThreatened();
                 }
                 if(e.unit.healthf() <= 0.45f){
@@ -1188,11 +1190,7 @@ public class JotaroContent{
             timeStopZones.get(i).timer -= Time.delta;
         }
 
-        for(IntMap.Entry<FrozenUnit> entry : frozenUnits){
-            entry.value.insideThisTick = false;
-            entry.value.flow = 1f;
-        }
-
+        IntFloatMap unitFlowMap = new IntFloatMap();
         for(int i = 0; i < timeStopZones.size; i++){
             TimeStopZone zone = timeStopZones.get(i);
             if(zone.timer <= 0f) continue;
@@ -1207,36 +1205,48 @@ public class JotaroContent{
 
             Units.nearbyEnemies(zone.team, zone.x, zone.y, Math.max(24f, activeR), u -> {
                 if(u != null && !u.dead){
-                    FrozenUnit fu = frozenUnits.get(u.id);
-                    if(fu == null){
-                        fu = new FrozenUnit();
-                        fu.unit = u;
-                        fu.lastX = u.x;
-                        fu.lastY = u.y;
-                        fu.lastRot = u.rotation;
-                        frozenUnits.put(u.id, fu);
-                    }
-                    fu.insideThisTick = true;
-                    if(flow < fu.flow){
-                        fu.flow = flow;
+                    float prev = unitFlowMap.get(u.id, 1f);
+                    if(flow < prev){
+                        unitFlowMap.put(u.id, flow);
                     }
                 }
             });
         }
 
-        IntSeq deadUnitKeys = new IntSeq();
         for(IntMap.Entry<FrozenUnit> entry : frozenUnits){
             FrozenUnit fu = entry.value;
-            Unit u = fu.unit;
-            if(!fu.insideThisTick || u == null || u.dead || !u.isAdded()){
-                if(u != null && !u.dead){
-                    u.unapply(timeStopFreeze);
+            if(fu.unit == null || fu.unit.dead || !fu.unit.isAdded() || !unitFlowMap.containsKey(entry.key)){
+                if(fu.unit != null && !fu.unit.dead){
+                    fu.unit.unapply(timeStopFreeze);
                 }
-                deadUnitKeys.add(entry.key);
-                continue;
+                fu.markedRemove = true;
+            }
+        }
+        Seq<Integer> deadUnitKeys = new Seq<>();
+        for(IntMap.Entry<FrozenUnit> entry : frozenUnits){
+            if(entry.value.markedRemove) deadUnitKeys.add(entry.key);
+        }
+        for(int i = 0; i < deadUnitKeys.size; i++){
+            frozenUnits.remove(deadUnitKeys.get(i));
+        }
+
+        IntFloatMap.Entries uEntries = unitFlowMap.entries();
+        while(uEntries.hasNext()){
+            IntFloatMap.Entry entry = uEntries.next();
+            Unit u = Groups.unit.getByID(entry.key);
+            if(u == null || u.dead) continue;
+            float flow = entry.value;
+
+            FrozenUnit fu = frozenUnits.get(u.id);
+            if(fu == null){
+                fu = new FrozenUnit();
+                fu.unit = u;
+                fu.lastX = u.x;
+                fu.lastY = u.y;
+                fu.lastRot = u.rotation;
+                frozenUnits.put(u.id, fu);
             }
 
-            float flow = fu.flow;
             float dx = u.x - fu.lastX;
             float dy = u.y - fu.lastY;
             if(dx * dx + dy * dy > 34f * 34f){
@@ -1295,14 +1305,8 @@ public class JotaroContent{
                 u.unapply(timeStopFreeze);
             }
         }
-        for(int i = 0; i < deadUnitKeys.size; i++){
-            frozenUnits.remove(deadUnitKeys.get(i));
-        }
 
-        for(IntMap.Entry<FrozenBullet> entry : frozenBullets){
-            entry.value.insideThisTick = false;
-        }
-
+        IntFloatMap bulletFlowMap = new IntFloatMap();
         for(Bullet b : Groups.bullet){
             if(b == null || !b.isAdded()) continue;
             if(b.type instanceof ContinuousBulletType || b.type instanceof LaserBulletType || b.type instanceof PointLaserBulletType) continue;
@@ -1318,8 +1322,31 @@ public class JotaroContent{
                     bestFlow = Math.min(bestFlow, getZoneTimeFlow(zone));
                 }
             }
+            if(insideAny){
+                bulletFlowMap.put(b.id, bestFlow);
+            }
+        }
 
-            if(!insideAny) continue;
+        Seq<Integer> releasedBullets = new Seq<>();
+        for(IntMap.Entry<FrozenBullet> entry : frozenBullets){
+            FrozenBullet fb = entry.value;
+            if(fb.bullet == null || !fb.bullet.isAdded()){
+                releasedBullets.add(entry.key);
+            }else if(!bulletFlowMap.containsKey(entry.key)){
+                fb.bullet.vel.set(fb.savedVel);
+                releasedBullets.add(entry.key);
+            }
+        }
+        for(int i = 0; i < releasedBullets.size; i++){
+            frozenBullets.remove(releasedBullets.get(i));
+        }
+
+        IntFloatMap.Entries bEntries = bulletFlowMap.entries();
+        while(bEntries.hasNext()){
+            IntFloatMap.Entry entry = bEntries.next();
+            Bullet b = Groups.bullet.getByID(entry.key);
+            if(b == null || !b.isAdded()) continue;
+            float flow = entry.value;
 
             FrozenBullet fb = frozenBullets.get(b.id);
             if(fb == null){
@@ -1331,37 +1358,22 @@ public class JotaroContent{
                 fb.lastTime = b.time;
                 frozenBullets.put(b.id, fb);
             }
-            fb.insideThisTick = true;
 
-            if(bestFlow <= 0.01f){
+            if(flow <= 0.01f){
                 b.set(fb.lastX, fb.lastY);
                 b.vel.setZero();
                 b.time = fb.lastTime;
             }else{
                 float dx = b.x - fb.lastX;
                 float dy = b.y - fb.lastY;
-                b.set(fb.lastX + dx * bestFlow, fb.lastY + dy * bestFlow);
+                b.set(fb.lastX + dx * flow, fb.lastY + dy * flow);
                 float dt = Math.max(0f, b.time - fb.lastTime);
-                b.time = fb.lastTime + dt * bestFlow;
-                b.vel.set(fb.savedVel).scl(bestFlow);
+                b.time = fb.lastTime + dt * flow;
+                b.vel.set(fb.savedVel).scl(flow);
                 fb.lastX = b.x;
                 fb.lastY = b.y;
                 fb.lastTime = b.time;
             }
-        }
-
-        IntSeq releasedBullets = new IntSeq();
-        for(IntMap.Entry<FrozenBullet> entry : frozenBullets){
-            FrozenBullet fb = entry.value;
-            if(fb.bullet == null || !fb.bullet.isAdded()){
-                releasedBullets.add(entry.key);
-            }else if(!fb.insideThisTick){
-                fb.bullet.vel.set(fb.savedVel);
-                releasedBullets.add(entry.key);
-            }
-        }
-        for(int i = 0; i < releasedBullets.size; i++){
-            frozenBullets.remove(releasedBullets.get(i));
         }
 
         for(int i = timeStopZones.size - 1; i >= 0; i--){
@@ -1836,7 +1848,7 @@ public class JotaroContent{
 
         @Override
         public void displayBars(Unit unit, Table bars){
-            if(!(unit.controller() instanceof MeleeCommandAI ai)) return;
+            if(!(unit.controller() instanceof JotaroCommandAI ai)) return;
             bars.add(new Bar(
                 () -> (ai.standAwakened ? "Time-Skip: " : "Lunge: ") + (ai.lungeCooldown <= 0f ? "Ready" : Strings.fixed(ai.lungeCooldown / 60f, 1) + "s"),
                 () -> ai.lungeCooldown <= 0f ? (ai.standAwakened ? STAND_CYAN : JOTARO_GOLD) : Color.gray,
@@ -1846,7 +1858,7 @@ public class JotaroContent{
 
         @Override
         public void update(Unit unit){
-            if(!(unit.controller() instanceof MeleeCommandAI ai)) return;
+            if(!(unit.controller() instanceof JotaroCommandAI ai)) return;
 
             if(ai.dashTimer > 0f && Mathf.chanceDelta(0.75f)){
                 dashAfterimageEffect.at(unit.x - Angles.trnsx(ai.dashAngle, 5f), unit.y - Angles.trnsy(ai.dashAngle, 5f), ai.dashAngle);
@@ -1878,7 +1890,7 @@ public class JotaroContent{
 
         @Override
         public void displayBars(Unit unit, Table bars){
-            if(!(unit.controller() instanceof MeleeCommandAI ai)) return;
+            if(!(unit.controller() instanceof JotaroCommandAI ai)) return;
             bars.add(new Bar(
                 () -> ai.dodgeCooldown <= 0f ? "Flank Dodge Ready" : "Flank Dodge: " + Strings.fixed(ai.dodgeCooldown / 60f, 1) + "s",
                 () -> ai.dodgeCooldown <= 0f ? JOTARO_PURPLE : Color.gray,
@@ -2023,10 +2035,10 @@ public class JotaroContent{
     }
 
     public static class StandOraRushAbility extends Ability{
-        private final MeleeType flurryType;
-        private final MeleeType finisherType;
+        private final JotaroMeleeType flurryType;
+        private final JotaroMeleeType finisherType;
 
-        public StandOraRushAbility(MeleeType flurryType, MeleeType finisherType){
+        public StandOraRushAbility(JotaroMeleeType flurryType, JotaroMeleeType finisherType){
             this.flurryType = flurryType;
             this.finisherType = finisherType;
         }
@@ -2405,6 +2417,631 @@ public class JotaroContent{
         }
     }
 
+    private enum JotaroMeleeShape{
+        ARC,
+        THRUST,
+        SLAM
+    }
+
+    private static class JotaroMeleeType{
+        public JotaroMeleeShape shape = JotaroMeleeShape.ARC;
+        public float reach = 26f;
+        public float arcAngle = 110f;
+        public float halfWidth = 10f;
+        public float damage = 32f;
+        public float buildingDamageMultiplier = 1f;
+        public boolean pierceArmor = false;
+        public int maxTargets = 5;
+        public boolean hitGround = true;
+        public boolean hitAir = false;
+        public float knockback = 2.5f;
+        public float lungeSpeed = 0f;
+        public float shake = 0f;
+
+        public @Nullable StatusEffect hitStatus = null;
+        public float hitStatusDuration = 24f;
+
+        public Color accentColor = Color.valueOf("b58cff");
+        public Effect swingEffect = Fx.none;
+        public Effect hitEffect = Fx.hitBulletSmall;
+        public Sound swingSound = Sounds.none;
+        public Sound hitSound = Sounds.none;
+
+        private static final Seq<Unit> tmpUnits = new Seq<>();
+        private static final Seq<Building> tmpBuilds = new Seq<>();
+
+        public int execute(Unit attacker, float originX, float originY, float angle){
+            if(attacker == null || attacker.dead) return 0;
+
+            if(swingEffect != null && swingEffect != Fx.none){
+                swingEffect.at(originX, originY, angle, accentColor);
+            }
+            if(swingSound != null && swingSound != Sounds.none){
+                swingSound.at(originX, originY);
+            }
+
+            if(lungeSpeed > 0.01f){
+                attacker.impulse(Angles.trnsx(angle, lungeSpeed * 60f), Angles.trnsy(angle, lungeSpeed * 60f));
+            }
+
+            float dmgMult = attacker.damageMultiplier;
+            float baseDmg = damage * dmgMult;
+            int hits = 0;
+
+            tmpUnits.clear();
+            float scanRange = reach + 32f;
+            Units.nearbyEnemies(attacker.team, originX, originY, scanRange, u -> {
+                if(u == null || u.dead || !u.hittable() || !u.targetable(attacker.team)) return;
+                if(u.isFlying() && !hitAir) return;
+                if(!u.isFlying() && !hitGround) return;
+                if(matchesShape(originX, originY, angle, u.x, u.y, u.hitSize * 0.5f)){
+                    tmpUnits.add(u);
+                }
+            });
+
+            if(tmpUnits.size > 1){
+                tmpUnits.sort(u -> u.dst2(originX, originY));
+            }
+
+            for(int i = 0; i < tmpUnits.size && hits < maxTargets; i++){
+                Unit u = tmpUnits.get(i);
+                if(pierceArmor){
+                    u.damagePierce(baseDmg);
+                }else{
+                    u.damage(baseDmg);
+                }
+
+                if(hitStatus != null){
+                    u.apply(hitStatus, hitStatusDuration);
+                }
+
+                if(knockback > 0.01f){
+                    float pushAng = shape == JotaroMeleeShape.SLAM ? Angles.angle(originX, originY, u.x, u.y) : angle;
+                    float sizeScale = Mathf.clamp(12f / Math.max(8f, u.hitSize), 0.35f, 1.3f);
+                    u.impulse(Angles.trnsx(pushAng, knockback * 38f * sizeScale), Angles.trnsy(pushAng, knockback * 38f * sizeScale));
+                }
+
+                if(hitEffect != null && hitEffect != Fx.none){
+                    hitEffect.at(u.x, u.y, angle, accentColor);
+                }
+                hits++;
+            }
+
+            if(hitGround && hits < maxTargets && buildingDamageMultiplier > 0f){
+                tmpBuilds.clear();
+                for(Team t : Team.all){
+                    if(t == attacker.team || t.data().buildings.isEmpty()) continue;
+                    for(Building b : t.data().buildings){
+                        if(b == null || !b.isAdded() || b.dead || !b.block.targetable) continue;
+                        if(Mathf.dst2(originX, originY, b.x, b.y) > (scanRange + b.hitSize()) * (scanRange + b.hitSize())) continue;
+                        if(matchesShape(originX, originY, angle, b.x, b.y, b.hitSize() * 0.5f)){
+                            tmpBuilds.add(b);
+                        }
+                    }
+                }
+
+                if(tmpBuilds.size > 1){
+                    tmpBuilds.sort(b -> Mathf.dst2(originX, originY, b.x, b.y));
+                }
+
+                float bDmg = baseDmg * buildingDamageMultiplier;
+                for(int i = 0; i < tmpBuilds.size && hits < maxTargets; i++){
+                    Building b = tmpBuilds.get(i);
+                    b.damage(attacker.team, bDmg);
+                    if(hitEffect != null && hitEffect != Fx.none){
+                        hitEffect.at(b.x, b.y, angle, accentColor);
+                    }
+                    hits++;
+                }
+            }
+
+            if(hits > 0){
+                if(hitSound != null && hitSound != Sounds.none){
+                    hitSound.at(originX, originY);
+                }
+                if(shake > 0.01f){
+                    Effect.shake(shake, shake * 4f, originX, originY);
+                }
+            }
+
+            return hits;
+        }
+
+        private boolean matchesShape(float ox, float oy, float angle, float tx, float ty, float targetRadius){
+            float dx = tx - ox;
+            float dy = ty - oy;
+            float dist = Mathf.len(dx, dy);
+
+            if(shape == JotaroMeleeShape.SLAM){
+                return dist <= reach + targetRadius;
+            }
+
+            if(dist > reach + targetRadius){
+                return false;
+            }
+
+            if(dist <= Math.max(6f, targetRadius + 2f)){
+                return true;
+            }
+
+            float targetAng = Angles.angle(ox, oy, tx, ty);
+            float angDiff = Math.abs(Angles.angleDist(angle, targetAng));
+
+            if(shape == JotaroMeleeShape.ARC){
+                float angPad = Mathf.radiansToDegrees * Math.min(0.65f, targetRadius / Math.max(dist, 8f));
+                return angDiff <= (arcAngle * 0.5f) + angPad;
+            }else{
+                float rad = angDiff * Mathf.degreesToRadians;
+                float forward = dist * Mathf.cos(rad);
+                float lateral = dist * Mathf.sin(rad);
+                return forward >= -targetRadius * 0.5f && forward <= reach + targetRadius && lateral <= halfWidth + targetRadius;
+            }
+        }
+    }
+
+    private static class JotaroMeleeWeapon extends Weapon{
+        public final JotaroMeleeType melee;
+        public @Nullable JotaroStrikeHandler strikeHandler;
+
+        public JotaroMeleeWeapon(String name, JotaroMeleeType melee){
+            super(name);
+            this.melee = melee;
+            this.shootSound = Sounds.none;
+            this.ejectEffect = Fx.none;
+            this.bullet = createRangeMarker(melee);
+        }
+
+        public JotaroMeleeWeapon(JotaroMeleeType melee){
+            this("", melee);
+        }
+
+        private static BulletType createRangeMarker(JotaroMeleeType m){
+            return new BulletType(0f, 0f){{
+                rangeOverride = m.reach;
+                lifetime = 1f;
+                speed = 0f;
+                collides = false;
+                collidesAir = m.hitAir;
+                collidesGround = m.hitGround;
+                hittable = false;
+                absorbable = false;
+                reflectable = false;
+                shootEffect = Fx.none;
+                smokeEffect = Fx.none;
+                hitEffect = Fx.none;
+                despawnEffect = Fx.none;
+            }};
+        }
+
+        @Override
+        public void addStats(UnitType u, Table t){
+            if(inaccuracy > 0){
+                t.row();
+                t.add("[lightgray]" + Stat.inaccuracy.localized() + ": [white]" + (int)inaccuracy + " " + StatUnit.degrees.localized());
+            }
+            if(!alwaysContinuous && reload > 0 && !bullet.killShooter){
+                t.row();
+                t.add("[lightgray]" + Stat.reload.localized() + ": " + (mirror ? "2x " : "") + "[white]" + Strings.autoFixed(60f / reload, 2) + " " + StatUnit.perSecond.localized());
+            }
+
+            t.row();
+            t.add("[lightgray]Melee Damage: [white]" + Strings.autoFixed(melee.damage, 1) + (melee.pierceArmor ? " [accent](Armor Pierce)" : ""));
+            t.row();
+            t.add("[lightgray]Reach: [white]" + Strings.autoFixed(melee.reach / Vars.tilesize, 1) + " tiles");
+            t.row();
+            if(melee.shape == JotaroMeleeShape.ARC){
+                t.add("[lightgray]Arc: [white]" + (int)melee.arcAngle + "° (Max " + melee.maxTargets + " targets)");
+            }else if(melee.shape == JotaroMeleeShape.THRUST){
+                t.add("[lightgray]Thrust Width: [white]" + Strings.autoFixed((melee.halfWidth * 2f) / Vars.tilesize, 1) + " tiles");
+            }else{
+                t.add("[lightgray]360° Slam AoE (Max " + melee.maxTargets + " targets)");
+            }
+            if(melee.buildingDamageMultiplier != 1f){
+                t.row();
+                t.add("[lightgray]Building Multiplier: [white]" + Strings.autoFixed(melee.buildingDamageMultiplier * 100f, 0) + "%");
+            }
+            if(melee.hitStatus != null && melee.hitStatus.show){
+                t.row();
+                t.add("[lightgray]Applies: [white]" + melee.hitStatus.localizedName + " (" + Strings.autoFixed(melee.hitStatusDuration / 60f, 1) + "s)");
+            }
+        }
+
+        @Override
+        public float dps(){
+            return reload > 0f ? (melee.damage * (60f / reload)) : 0f;
+        }
+
+        @Override
+        protected void bullet(Unit unit, WeaponMount mount, float xOffset, float yOffset, float angleOffset, Mover mover){
+            if(!unit.isAdded() || unit.dead) return;
+
+            float weaponRotation = unit.rotation - 90f + (rotate ? mount.rotation : baseRotation);
+            float mountX = unit.x + Angles.trnsx(unit.rotation - 90f, x, y);
+            float mountY = unit.y + Angles.trnsy(unit.rotation - 90f, x, y);
+            float originX = mountX + Angles.trnsx(weaponRotation, shootX, shootY) + xOffset;
+            float originY = mountY + Angles.trnsy(weaponRotation, shootX, shootY) + yOffset;
+            float strikeAngle = weaponRotation + angleOffset + 90f;
+
+            if(strikeHandler != null){
+                strikeHandler.onStrike(unit, mount, originX, originY, strikeAngle, this);
+            }else{
+                melee.execute(unit, originX, originY, strikeAngle);
+            }
+        }
+
+        public interface JotaroStrikeHandler{
+            void onStrike(Unit unit, WeaponMount mount, float originX, float originY, float angle, JotaroMeleeWeapon weapon);
+        }
+    }
+
+    private static class JotaroCommandAI extends CommandAI{
+        public float detectThreatRange = 136f;
+        public float sprintStartEdgeDist = 36f;
+        public float sprintStopEdgeDist = 24f;
+        public float baseDesiredEdgeDist = 6f;
+        public float standDesiredEdgeDist = 38f;
+        public float lungeMinEdgeDist = 60f;
+        public float lungeMaxEdgeDist = 148f;
+        public float lungeCooldownDuration = 360f;
+        public float lungeBurstTicks = 9f;
+        public float lungeBurstSpeed = 7.4f;
+
+        public float flankCombatMaxEdgeDist = 76f;
+        public float dodgeCooldownDuration = 180f;
+        public float baseDodgeTicks = 6f;
+        public float baseDodgeSpeed = 6.4f;
+
+        public boolean sprinting = false;
+        public boolean standAwakened = false;
+        public boolean standActiveOut = false;
+        public boolean entrancePaused = false;
+        public float lungeCooldown = 0f;
+        public float dodgeCooldown = 0f;
+        public float dashTimer = 0f;
+        public float dashAngle = 0f;
+        public float dashSpeed = 0f;
+        public boolean activeFlankDash = false;
+        public @Nullable Teamc flankTarget = null;
+        public float threatAlertTimer = 0f;
+
+        public @Nullable Cons<Unit> onDashAudio;
+        public @Nullable Cons2<Unit, Position> onTeleportBlink;
+
+        public void notifyThreatened(){
+            threatAlertTimer = 240f;
+        }
+
+        @Override
+        public void updateTargeting(){
+            if(attackTarget instanceof Unit u && u.isFlying() && !unit.type.targetAir){
+                attackTarget = null;
+            }
+            if(attackTarget != null && !attackTarget.isValid()){
+                attackTarget = null;
+            }
+
+            if(hasCommand() && command.switchToAttack != null && stance != UnitStance.holdFire){
+                super.updateTargeting();
+                if(attackTarget instanceof Unit u && u.isFlying() && !unit.type.targetAir){
+                    attackTarget = null;
+                }
+            }
+
+            if(attackTarget == null && targetPos == null && stance != UnitStance.holdFire){
+                float scanRange = threatAlertTimer > 0f ? detectThreatRange * 1.35f : detectThreatRange;
+                Unit closeThreat = Units.closestEnemy(unit.team, unit.x, unit.y, scanRange, u -> !u.dead && !u.isFlying() && u.hittable());
+                if(closeThreat != null){
+                    attackTarget = closeThreat;
+                }else{
+                    float bScan = threatAlertTimer > 0f ? scanRange : 64f;
+                    Building closeBuild = Units.findEnemyTile(unit.team, unit.x, unit.y, bScan, b -> b.block.targetable);
+                    if(closeBuild != null){
+                        attackTarget = closeBuild;
+                    }
+                }
+            }
+        }
+
+        @Override
+        public void updateUnit(){
+            lungeCooldown = Math.max(0f, lungeCooldown - Time.delta);
+            dodgeCooldown = Math.max(0f, dodgeCooldown - Time.delta);
+            threatAlertTimer = Math.max(0f, threatAlertTimer - Time.delta);
+
+            if(entrancePaused){
+                dashTimer = 0f;
+                activeFlankDash = false;
+                flankTarget = null;
+                sprinting = false;
+                unit.vel.setZero();
+                stopAttacking();
+                return;
+            }
+
+            super.updateUnit();
+
+            if(dashTimer > 0f){
+                dashTimer -= Time.delta;
+                if(isPathBlocked(dashAngle, Math.max(18f, dashSpeed * 2.8f))){
+                    dashTimer = 0f;
+                    activeFlankDash = false;
+                    flankTarget = null;
+                }else{
+                    if(activeFlankDash && flankTarget != null && flankTarget.isValid()){
+                        float dirToTgt = Angles.angle(unit.x, unit.y, flankTarget.getX(), flankTarget.getY());
+                        float curveSign = Angles.angleDist(dirToTgt, dashAngle) >= 0f ? 1f : -1f;
+                        float edge = unit.dst(flankTarget) - unit.hitSize * 0.5f - flankTarget.hitSize() * 0.5f;
+                        if(edge < 16f){
+                            dashAngle = Angles.moveToward(dashAngle, dirToTgt + curveSign * 66f, 18f * Time.delta);
+                        }
+                    }
+                    unit.vel.trns(dashAngle, dashSpeed);
+                    if(flankTarget != null && flankTarget.isValid()){
+                        unit.lookAt(flankTarget);
+                    }else{
+                        unit.rotation = dashAngle;
+                    }
+                }
+                if(dashTimer <= 0f){
+                    activeFlankDash = false;
+                    flankTarget = null;
+                }
+            }else{
+                applyBulletWeaveSteering();
+            }
+
+            boolean holdFire = stance == UnitStance.holdFire;
+            float punchReach = standActiveOut ? 54f : 28f;
+
+            if(attackTarget == null || !attackTarget.isValid()){
+                sprinting = false;
+                if(!holdFire){
+                    Unit close = Units.closestEnemy(unit.team, unit.x, unit.y, punchReach + 12f, u -> !u.dead && !u.isFlying() && u.hittable());
+                    if(close != null && unit.dst(close) - unit.hitSize * 0.5f - close.hitSize * 0.5f <= punchReach){
+                        unit.lookAt(close);
+                        unit.controlWeapons(true, true);
+                        return;
+                    }
+
+                    Building blocker = findClosestEnemyBuilding(punchReach);
+                    if(blocker != null){
+                        unit.lookAt(blocker);
+                        unit.controlWeapons(true, true);
+                        return;
+                    }
+                }
+                stopAttacking();
+                return;
+            }
+
+            float targetRad = attackTarget.hitSize() * 0.5f;
+            float centerDst = unit.dst(attackTarget);
+            float edgeDst = centerDst - unit.hitSize * 0.5f - targetRad;
+
+            float sprintStart = standActiveOut ? 56f : sprintStartEdgeDist;
+            float sprintStop = standActiveOut ? 44f : sprintStopEdgeDist;
+            if(!sprinting && edgeDst >= sprintStart){
+                sprinting = true;
+            }else if(sprinting && edgeDst <= sprintStop){
+                sprinting = false;
+            }
+
+            if(dashTimer <= 0f && dodgeCooldown <= 0f && attackTarget instanceof Unit && edgeDst <= flankCombatMaxEdgeDist){
+                Bullet threat = findIncomingBullet(76f, 18f, unit.hitSize + 10f);
+                if(threat != null || edgeDst <= 48f){
+                    if(triggerCombatFlankDash(attackTarget, targetRad)){
+                        dodgeCooldown = dodgeCooldownDuration;
+                    }
+                }
+            }
+
+            if(dashTimer <= 0f && lungeCooldown <= 0f && edgeDst >= lungeMinEdgeDist && edgeDst <= lungeMaxEdgeDist){
+                if(standAwakened){
+                    if(tryTimeSkipTeleport(attackTarget, targetRad)){
+                        lungeCooldown = lungeCooldownDuration;
+                    }
+                }else{
+                    float ang = Angles.angle(unit.x, unit.y, attackTarget.getX(), attackTarget.getY());
+                    if(!isPathBlocked(ang, Math.min(centerDst - targetRad, 72f))){
+                        dashAngle = ang;
+                        dashSpeed = lungeBurstSpeed;
+                        dashTimer = lungeBurstTicks;
+                        activeFlankDash = false;
+                        flankTarget = attackTarget;
+                        lungeCooldown = lungeCooldownDuration;
+                        unit.vel.trns(dashAngle, dashSpeed);
+                        if(onDashAudio != null) onDashAudio.get(unit);
+                    }
+                }
+            }
+
+            boolean standVsUnit = standActiveOut && !(attackTarget instanceof Building);
+            float desiredEdge = standVsUnit ? standDesiredEdgeDist : baseDesiredEdgeDist;
+
+            if(dashTimer <= 0f && edgeDst <= desiredEdge){
+                if(standVsUnit && edgeDst < desiredEdge - 8f){
+                    float backAng = Angles.angle(attackTarget.getX(), attackTarget.getY(), unit.x, unit.y);
+                    if(!isPathBlocked(backAng, 14f)){
+                        unit.moveAt(Tmp.v1.trns(backAng, unit.speed() * 0.65f));
+                    }else{
+                        unit.vel.scl(0.3f);
+                    }
+                }else{
+                    unit.vel.scl(0.3f);
+                }
+                unit.lookAt(attackTarget);
+            }
+
+            if(!holdFire && edgeDst <= punchReach){
+                unit.lookAt(attackTarget);
+                unit.controlWeapons(true, true);
+            }else if(!holdFire){
+                Building blocker = findClosestEnemyBuilding(punchReach);
+                if(blocker != null){
+                    unit.lookAt(blocker);
+                    unit.controlWeapons(true, true);
+                }else{
+                    stopAttacking();
+                }
+            }else{
+                stopAttacking();
+            }
+        }
+
+        private @Nullable Building findClosestEnemyBuilding(float maxEdgeDist){
+            Building best = null;
+            float bestEdge = maxEdgeDist;
+            for(Team t : Team.all){
+                if(t == unit.team || t.data().buildings.isEmpty()) continue;
+                for(Building b : t.data().buildings){
+                    if(b == null || !b.isAdded() || b.dead || !b.block.targetable) continue;
+                    float edge = unit.dst(b) - unit.hitSize * 0.5f - b.hitSize() * 0.5f;
+                    if(edge <= bestEdge){
+                        bestEdge = edge;
+                        best = b;
+                    }
+                }
+            }
+            return best;
+        }
+
+        private boolean tryTimeSkipTeleport(Teamc target, float targetRad){
+            float tx = target.getX();
+            float ty = target.getY();
+            float standDist = standDesiredEdgeDist + unit.hitSize * 0.5f + targetRad;
+            float targetFacing = target instanceof Unit u ? u.rotation : Angles.angle(unit.x, unit.y, tx, ty);
+
+            float[] candidateAngles = {
+                targetFacing + 180f,
+                targetFacing + 145f,
+                targetFacing - 145f,
+                Angles.angle(tx, ty, unit.x, unit.y)
+            };
+
+            for(float ang : candidateAngles){
+                float nx = tx + Angles.trnsx(ang, standDist);
+                float ny = ty + Angles.trnsy(ang, standDist);
+                Tile tile = Vars.world.tileWorld(nx, ny);
+                if(tile != null && !tile.solid()){
+                    Vec2 oldPos = Tmp.v1.set(unit.x, unit.y);
+                    unit.set(nx, ny);
+                    unit.vel.setZero();
+                    unit.lookAt(target);
+                    if(onTeleportBlink != null){
+                        onTeleportBlink.get(unit, oldPos);
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private boolean triggerCombatFlankDash(Teamc target, float targetRad){
+            float baseAng = Angles.angle(unit.x, unit.y, target.getX(), target.getY());
+            float sizeScale = Mathf.clamp((targetRad + 10f) / 16f, 0.95f, 2.25f);
+            float chosenSpeed = baseDodgeSpeed * Mathf.lerp(1f, sizeScale, 0.45f);
+            float chosenTicks = baseDodgeTicks * Mathf.lerp(1f, sizeScale, 0.55f);
+            float checkLen = Math.max(24f, chosenSpeed * chosenTicks * 0.9f);
+
+            float[] offsets = {56f, -56f, 78f, -78f, 40f, -40f, 96f};
+            for(float off : offsets){
+                float ang = baseAng + off;
+                if(!isPathBlocked(ang, checkLen)){
+                    dashAngle = ang;
+                    dashSpeed = chosenSpeed;
+                    dashTimer = chosenTicks;
+                    activeFlankDash = true;
+                    flankTarget = target;
+                    unit.vel.trns(dashAngle, dashSpeed);
+                    if(onDashAudio != null) onDashAudio.get(unit);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void stopAttacking(){
+            unit.controlWeapons(false, false);
+            if(unit.mounts != null){
+                for(WeaponMount mount : unit.mounts){
+                    mount.shoot = false;
+                }
+            }
+        }
+
+        private void applyBulletWeaveSteering(){
+            Position goal = attackTarget != null ? attackTarget : targetPos;
+            if(goal == null) return;
+
+            float goalDst = unit.dst(goal);
+            if(goalDst < 28f) return;
+
+            Bullet threat = findIncomingBullet(132f, 24f, unit.hitSize + 14f);
+            if(threat == null) return;
+
+            float goalAng = Angles.angle(unit.x, unit.y, goal.getX(), goal.getY());
+            float bAng = threat.vel.angle();
+            float bDirX = Angles.trnsx(bAng, 1f);
+            float bDirY = Angles.trnsy(bAng, 1f);
+            float toUnitX = unit.x - threat.x;
+            float toUnitY = unit.y - threat.y;
+            float cross = bDirX * toUnitY - bDirY * toUnitX;
+            float sideSign = cross >= 0f ? 1f : -1f;
+
+            float weaveAng = goalAng + sideSign * 52f;
+            if(isPathBlocked(weaveAng, 22f)){
+                weaveAng = goalAng - sideSign * 52f;
+                if(isPathBlocked(weaveAng, 22f)) return;
+            }
+
+            float spd = Math.max(unit.speed(), 1.0f);
+            unit.moveAt(Tmp.v1.trns(weaveAng, spd));
+        }
+
+        private @Nullable Bullet findIncomingBullet(float maxDist, float maxTicksAhead, float corridorHalfWidth){
+            Bullet closest = null;
+            float bestDist2 = maxDist * maxDist;
+
+            for(Bullet b : Groups.bullet){
+                if(b == null || !b.isAdded() || b.team == unit.team) continue;
+                if(b.type.damage + b.type.splashDamage < 5f) continue;
+
+                float spd2 = b.vel.len2();
+                if(spd2 < 0.64f) continue;
+
+                float dst2 = unit.dst2(b);
+                if(dst2 > bestDist2) continue;
+
+                if(b.type.homingPower > 0.01f && dst2 > 44f * 44f) continue;
+
+                float spd = Mathf.sqrt(spd2);
+                float maxTravel = Math.min(maxDist, spd * maxTicksAhead);
+                float dirX = b.vel.x / spd;
+                float dirY = b.vel.y / spd;
+                float relX = unit.x - b.x;
+                float relY = unit.y - b.y;
+                float proj = relX * dirX + relY * dirY;
+                if(proj < -8f || proj > maxTravel) continue;
+
+                float perp = Math.abs(relX * dirY - relY * dirX);
+                float hitCorridor = corridorHalfWidth + b.hitSize * 0.5f;
+                if(perp <= hitCorridor){
+                    bestDist2 = dst2;
+                    closest = b;
+                }
+            }
+            return closest;
+        }
+
+        private boolean isPathBlocked(float angle, float checkDist){
+            for(float d = 10f; d <= checkDist; d += 8f){
+                Tile tile = Vars.world.tileWorld(unit.x + Angles.trnsx(angle, d), unit.y + Angles.trnsy(angle, d));
+                if(tile == null || tile.solid()) return true;
+            }
+            return false;
+        }
+    }
+
     private static class TimeStopZone{
         Unit owner;
         Team team;
@@ -2417,15 +3054,13 @@ public class JotaroContent{
         Unit unit;
         float lastX, lastY, lastRot;
         float[] savedReloads;
-        float flow = 1f;
-        boolean insideThisTick = false;
+        boolean markedRemove = false;
     }
 
     private static class FrozenBullet{
         Bullet bullet;
         final Vec2 savedVel = new Vec2();
         float lastX, lastY, lastTime;
-        boolean insideThisTick = false;
     }
 
     private static class ShakenUnit{
