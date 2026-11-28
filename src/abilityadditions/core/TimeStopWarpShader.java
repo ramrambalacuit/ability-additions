@@ -63,12 +63,12 @@ public class TimeStopWarpShader{
         "        float fade = p.w;\n" +
         "\n" +
         "        if(warpStrength > 0.001 && waveR > 1.0){\n" +
-        "            float bandWidth = max(36.0, maxR * 0.24);\n" +
+        "            float bandWidth = max(36.0, maxR * 0.35);\n" +
         "            float dWave = dist - waveR;\n" +
         "            float normD = dWave / bandWidth;\n" +
         "            float band = exp(-(normD * normD) * 1.4);\n" +
         "            float ripple = sin(clamp(normD, -1.7, 1.7) * 2.2);\n" +
-        "            float radialPush = (ripple * 68.0 - band * 32.0) * warpStrength * fade;\n" +
+        "            float radialPush = (ripple * 110.0 - band * 50.0) * warpStrength * fade;\n" +
         "            float swirlPush = band * 22.0 * warpStrength * fade;\n" +
         "            totalUvOffset += (dir * radialPush + tang * swirlPush) / u_resolution;\n" +
         "            chromaAmount = max(chromaAmount, band * warpStrength * fade);\n" +
@@ -95,7 +95,7 @@ public class TimeStopWarpShader{
         "\n" +
         "    if(domeFactor > 0.001){\n" +
         "        float luma = dot(col.rgb, vec3(0.299, 0.587, 0.114));\n" +
-        "        vec3 frozenTone = mix(vec3(luma), col.rgb, 0.25) * vec3(0.80, 0.72, 1.18);\n" +
+        "        vec3 frozenTone = mix(vec3(luma), col.rgb, 0.0) * vec3(0.80, 0.72, 1.18);\n" +
         "        vec3 inverted = vec3(1.0) - col.rgb;\n" +
         "        vec3 jjbaInvert = mix(inverted, vec3(0.72, 0.34, 1.0) * (0.35 + 0.85 * luma), 0.22);\n" +
         "        vec3 targetCol = mix(frozenTone, jjbaInvert, clamp(invertFactor, 0.0, 1.0));\n" +
