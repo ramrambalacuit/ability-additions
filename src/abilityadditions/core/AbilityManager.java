@@ -53,10 +53,17 @@ public class AbilityManager{
     private static final Seq<ParalyzedUnit> paralyzedUnits = new Seq<>();
     private static final Seq<SpinningUnit> spinningUnits = new Seq<>();
     private static final Seq<TidalWave> tidalWaves = new Seq<>();
+    private static final Seq<SkyStrike> skyStrikes = new Seq<>();
+    private static final Seq<StunnedUnit> stunnedUnits = new Seq<>();
+    private static final Seq<BurnZone> burnZones = new Seq<>();
+    private static final IntSet giantBurstDone = new IntSet();
+    private static final Seq<GiantCharge> giantCharges = new Seq<>();
     private static final IntMap<TrackedEnemyBullet> trackedEnemyBullets = new IntMap<>();
     private static final ObjectMap<String, BulletType> snakeMissileCache = new ObjectMap<>();
 
     private static ContinuousFlameBulletType graniteBlastType;
+    private static BulletType giantShellType;
+    private static BulletType giantBurstType;
     private static boolean statsApplied = false;
     private static boolean eventsInitialized = false;
     private static Stat abilityStat;
@@ -118,9 +125,16 @@ public class AbilityManager{
             lifetime = profile.activeDuration * 60f + 10f;
             pierceArmor = true;
             laserAbsorb = true;
-            status = StatusEffects.melting;
-            statusDuration = 240f;
-            hitColor = flareColor = AbilityEffects.graniteCyan;
+            // Royal blue only: no orange melting status and no orange flame hit/despawn effects
+            status = StatusEffects.none;
+            statusDuration = 0f;
+            hitColor = flareColor = lightColor = AbilityEffects.graniteCyan;
+            hitEffect = AbilityEffectsExtra.graniteHit;
+            despawnEffect = Fx.none;
+            shootEffect = Fx.none;
+            smokeEffect = Fx.none;
+            makeFire = false;
+            incendChance = 0f;
             flareWidth = 11f;
             flareLength = 58f;
             flareRotSpeed = 0.45f;
@@ -328,7 +342,7 @@ public class AbilityManager{
             return "Charging " + Strings.fixed(state.chargeTimer / 60f, 1) + "s";
         }
         if(profile.id == AbilityId.PIERCE_DEAD_EYE && state.deadEyeRemaining > 0){
-            return "Dead Eye x" + state.deadEyeRemaining;
+            return "Dead Eye x" + state.deadEyeRemaining + (state.deadEyeTargets.size == 0 ? " (saved)" : "");
         }
 
         switch(profile.trigger.type){
@@ -516,7 +530,7 @@ public class AbilityManager{
                 }else if(owner != null && owner.id == AbilityId.PIERCE_DEAD_EYE){
                     steerTargetedBullet(b, 26f);
                 }else if(giantShellBullets.contains(b.id) && tickCounter % 3 == 0){
-                    AbilityEffects.activeTurretSpark.at(b.x, b.y, getBulletColor(b, owner));
+                    AbilityEffects.activeTurretSpark.at(b.x, b.y, b.data instanceof Color ? (Color)b.data : getBulletColor(b, owner));
                 }
             }
         }
@@ -525,6 +539,7 @@ public class AbilityManager{
             processedBullets.clear();
             activeEmpoweredBullets.clear();
             giantShellBullets.clear();
+            giantBurstDone.clear();
             galeBullets.clear();
             bulletOwners.clear();
             bulletTurretTargets.clear();
@@ -537,7 +552,10 @@ public class AbilityManager{
         updateTrackedRippleShells();
         updateDelayedClones();
         updateDelayedBomblets();
-        updateParalyzedUnits();
+        updateGiantCharges();
+        updateSkyStrikes();
+        updateStunnedUnits();
+        updateBurnZones();
         updateMarkedUnits();
         updateSpinningUnits();
         updateTidalWaves();
@@ -576,7 +594,7 @@ public class AbilityManager{
 
         // 2. Meltdown Granite Blast Charge (upgraded mov-style spiral + shrinking rings, NO cursed orb!)
         if(state.chargeTimer > 0f && tb != null && turret != null){
-            tb.reloadCounter = 0f;
+            tb.reloadCounter = turret.reload; // hold: the turret can never start a normal (orange) shot
             tb.rotation = state.lockedRotation;
             state.chargeTimer = Math.max(0f, state.chargeTimer - Time.delta);
 
@@ -600,7 +618,7 @@ public class AbilityManager{
                 AbilityEffects.graniteSnapWave.at(mx, my, AbilityEffects.graniteCyan);
                 state.activeTimer = profile.activeDuration * 60f;
                 state.lockedRotation = tb.rotation;
-                tb.reloadCounter = 0f;
+                tb.reloadCounter = turret.reload;
                 tb.target = null;
                 tb.targetPos.set(
                     tb.x + Angles.trnsx(state.lockedRotation, 240f),
@@ -623,7 +641,7 @@ public class AbilityManager{
             state.activeTimer = Math.max(0f, state.activeTimer - Time.delta);
 
             if(profile.id == AbilityId.MELTDOWN_GRANITE_BLAST && tb != null && turret != null){
-                tb.reloadCounter = 0f;
+                tb.reloadCounter = turret.reload;
                 tb.rotation = state.lockedRotation;
                 tb.target = null;
                 tb.targetPos.set(
@@ -690,17 +708,19 @@ public class AbilityManager{
                 onTurretTriggerPull(tb, turret, profile, state);
             }
 
-            // Meltdown (7/7 full) starts Royal Blue charge EARLY while reload < 50% so mov's orange charge never triggers!
+            // Meltdown (7/7 ready): start the Royal Blue charge instead of the turret's own orange shot.
             if(profile.id == AbilityId.MELTDOWN_GRANITE_BLAST
                 && state.shotCounter >= profile.trigger.everyNShots
-                && state.activeTimer <= 0f && state.chargeTimer <= 0f
-                && tb.isShooting() && tb.efficiency > 0.05f
-                && tb.reloadCounter < turret.reload * 0.55f){
-                state.shotCounter = 0;
-                state.chargeTimer = profile.chargeDuration * 60f;
-                state.lockedRotation = tb.rotation;
-                tb.reloadCounter = 0f;
-                return;
+                && state.activeTimer <= 0f && state.chargeTimer <= 0f){
+                if(tb.isShooting() && tb.efficiency > 0.05f && tb.reloadCounter < turret.reload * 0.55f){
+                    state.shotCounter = 0;
+                    state.chargeTimer = profile.chargeDuration * 60f;
+                    state.lockedRotation = tb.rotation;
+                    tb.reloadCounter = turret.reload;
+                    return;
+                }
+                // Ability is ready: never let the turret reach 0 reload and start a normal orange shot.
+                if(tb.reloadCounter < 3f) tb.reloadCounter = 3f;
             }
 
             if(profile.id == AbilityId.FORESHADOW_APEX_EXECUTION && state.shotCounter >= profile.trigger.everyNShots){
@@ -757,6 +777,29 @@ public class AbilityManager{
     }
 
     private static void startPierceDeadEye(TurretBuild tb, Turret turret, AbilityProfile profile, AbilityState state){
+        // The whole burst is banked. A shot is only spent when a hypershot really fires, so nothing is
+        // wasted when the area is empty or the turret is out of ammo: it simply waits for a target.
+        state.deadEyeRemaining = Math.max(1, profile.deadEyeShots);
+        state.deadEyeFireTimer = 4f;
+        state.deadEyeTargets.clear();
+        AbilityEffects.overdriveTrigger.at(tb.x, tb.y, getTurretAccentColor(tb, profile));
+        refreshDeadEyeTargets(tb, turret, profile, state);
+    }
+
+    /** Keeps one X-mark per remaining shot on living enemies in range. Does nothing if nobody is in range. */
+    private static void refreshDeadEyeTargets(TurretBuild tb, Turret turret, AbilityProfile profile, AbilityState state){
+        // forget marks that died or left the range
+        for(int i = state.deadEyeTargets.size - 1; i >= 0; i--){
+            Unit u = state.deadEyeTargets.get(i);
+            if(u == null || u.dead || !u.isAdded() || !u.within(tb, turret.range + u.hitSize)){
+                state.deadEyeTargets.remove(i);
+            }
+        }
+        while(state.deadEyeTargets.size > state.deadEyeRemaining){
+            state.deadEyeTargets.remove(state.deadEyeTargets.size - 1);
+        }
+        if(state.deadEyeTargets.size >= state.deadEyeRemaining) return;
+
         Seq<Unit> candidates = new Seq<>();
         Units.nearbyEnemies(tb.team, tb.x, tb.y, turret.range, u -> {
             if(u != null && !u.dead) candidates.add(u);
@@ -764,42 +807,51 @@ public class AbilityManager{
         if(candidates.size == 0) return;
 
         candidates.shuffle();
-        state.deadEyeTargets.clear();
-        for(int i = 0; i < profile.deadEyeShots; i++){
-            state.deadEyeTargets.add(candidates.get(i % candidates.size));
+        Color col = getTurretAccentColor(tb, profile);
+        int ci = 0;
+        while(state.deadEyeTargets.size < state.deadEyeRemaining){
+            Unit pick = candidates.get(ci % candidates.size);
+            ci++;
+            state.deadEyeTargets.add(pick);
+            AbilityEffectsExtra.deadEyeMark.at(pick.x, pick.y, pick.hitSize, col);
         }
-        state.deadEyeRemaining = state.deadEyeTargets.size;
-        state.deadEyeFireTimer = 4f;
-        AbilityEffects.overdriveTrigger.at(tb.x, tb.y, getTurretAccentColor(tb, profile));
     }
 
     private static void updatePierceDeadEye(TurretBuild tb, Turret turret, AbilityProfile profile, AbilityState state){
-        state.deadEyeFireTimer -= Time.delta;
-        if(state.deadEyeFireTimer > 0f) return;
+        if(state.deadEyeRemaining <= 0) return;
 
-        if(!tb.hasAmmo() || state.deadEyeTargets.size == 0){
-            state.deadEyeRemaining = 0;
-            state.deadEyeTargets.clear();
-            state.shotCounter = 0;
+        // Look for marks. With nobody in range this only scans a few times per second.
+        if(state.deadEyeTargets.size < state.deadEyeRemaining || tickCounter % 10 == 0){
+            if(state.deadEyeTargets.size > 0 || tickCounter % 6 == 0){
+                refreshDeadEyeTargets(tb, turret, profile, state);
+            }
+        }
+
+        // Nobody to shoot, or no ammo: keep the remaining shots saved and wait.
+        if(state.deadEyeTargets.size == 0 || !tb.hasAmmo()){
+            state.deadEyeFireTimer = Math.max(state.deadEyeFireTimer, 2f);
             return;
         }
 
-        Unit target = state.deadEyeTargets.remove(0);
-        state.deadEyeRemaining = state.deadEyeTargets.size;
-        state.deadEyeFireTimer = profile.deadEyeInterval;
-        if(state.deadEyeRemaining == 0){
-            state.shotCounter = 0;
-        }
+        state.deadEyeFireTimer -= Time.delta;
+        if(state.deadEyeFireTimer > 0f) return;
 
-        if(target == null || target.dead){
-            target = Units.closestEnemy(tb.team, tb.x, tb.y, turret.range, u -> !u.dead);
+        BulletType ammo = tb.peekAmmo();
+        if(ammo == null) return;
+
+        Unit target = state.deadEyeTargets.remove(0);
+        if(target == null || target.dead) return; // not spent, the next refresh finds a new mark
+
+        state.deadEyeRemaining--;
+        state.deadEyeFireTimer = profile.deadEyeInterval;
+        if(state.deadEyeRemaining <= 0){
+            state.deadEyeRemaining = 0;
+            state.shotCounter = 0;
+            state.deadEyeTargets.clear();
         }
-        if(target == null) return;
 
         float ang = Angles.angle(tb.x, tb.y, target.x, target.y);
         tb.rotation = ang;
-        BulletType ammo = tb.peekAmmo();
-        if(ammo == null) return;
 
         float mx = tb.x + Angles.trnsx(ang, turret.shootY);
         float my = tb.y + Angles.trnsy(ang, turret.shootY);
@@ -812,8 +864,10 @@ public class AbilityManager{
             bulletOwners.put(hyper.id, profile);
             bulletTurretTargets.put(hyper.id, target);
         }
-        Sounds.shootDuo.at(mx, my, 1.35f);
-        AbilityEffects.pierceHyperTracer.at(mx, my, 0f, col, new Vec2(target.x, target.y));
+        Sounds.shootDuo.at(mx, my, Mathf.random(1.25f, 1.45f));
+        AbilityEffectsExtra.deadEyeMuzzle.at(mx, my, ang, col);
+        AbilityEffectsExtra.deadEyeTracer.at(mx, my, 0f, col, new Vec2(target.x, target.y));
+        AbilityEffectsExtra.deadEyeImpact.at(target.x, target.y, 0f, col);
     }
 
     private static void onTurretTriggerPull(TurretBuild tb, Turret turret, AbilityProfile profile, AbilityState state){
@@ -1358,9 +1412,9 @@ public class AbilityManager{
         Color col = getBulletColor(b, profile);
 
         if(profile.id == AbilityId.SPECTRE_SINGULARITY_ORB){
-            b.damage *= profile.damageMultiplier;
-            giantShellBullets.add(b.id);
-            AbilityEffects.overdriveTrigger.at(b.x, b.y, col);
+            // The normal bullet is swapped for a giant orb that bursts into explosive bullets.
+            activeEmpoweredBullets.remove(b.id);
+            spawnGiantShell(tb, b, profile, col);
             return;
         }
 
@@ -1457,14 +1511,7 @@ public class AbilityManager{
         Color col = getBulletColor(bullet, profile);
 
         if(profile.id == AbilityId.SPECTRE_SINGULARITY_ORB && giantShellBullets.contains(bullet.id)){
-            giantShellBullets.remove(bullet.id);
-            activeEmpoweredBullets.remove(bullet.id);
-            AbilityEffects.giantShellImpact.at(unit.x, unit.y, col);
-            Damage.damage(bullet.team, unit.x, unit.y, 44f, bullet.damage * 0.4f, true, true);
-            unit.impulse(Angles.trnsx(bullet.rotation(), 220f), Angles.trnsy(bullet.rotation(), 220f));
-            if(profile.resolvedPrimaryStatus != null){
-                unit.apply(profile.resolvedPrimaryStatus, profile.primaryStatusDuration * 60f);
-            }
+            // The shockwave, burst ring and status are handled by the giant shell's own hit() override.
             return;
         }
 
@@ -1476,7 +1523,7 @@ public class AbilityManager{
         }
 
         if(profile.id == AbilityId.LANCER_ARC_PARALYSIS && bullet.owner instanceof TurretBuild){
-            paralyzeUnit((TurretBuild)bullet.owner, unit, col);
+            callSkyStrike((TurretBuild)bullet.owner, unit, bullet, col, profile);
             return;
         }
 
@@ -1547,12 +1594,7 @@ public class AbilityManager{
         if(profile == null) return;
 
         if(profile.id == AbilityId.SPECTRE_SINGULARITY_ORB && giantShellBullets.contains(bullet.id)){
-            giantShellBullets.remove(bullet.id);
-            activeEmpoweredBullets.remove(bullet.id);
-            Color col = getBulletColor(bullet, profile);
-            AbilityEffects.giantShellImpact.at(build.x, build.y, col);
-            Damage.damage(bullet.team, build.x, build.y, 44f, bullet.damage * 0.4f, true, true);
-            return;
+            return; // handled by the giant shell's own hit() override
         }
 
         if(profile.id == AbilityId.HAIL_SEISMIC_MORTAR){
@@ -1573,60 +1615,519 @@ public class AbilityManager{
         }
     }
 
-    private static void paralyzeUnit(TurretBuild source, Unit u, Color col){
-        if(PierceTurret.lancerParalyzed == null) return;
-        u.apply(PierceTurret.lancerParalyzed, 600f);
-        for(int i = 0; i < paralyzedUnits.size; i++){
-            if(paralyzedUnits.get(i).unit == u){
-                paralyzedUnits.get(i).source = source;
-                paralyzedUnits.get(i).firedAtShot = source.totalShots;
-                paralyzedUnits.get(i).timer = 0f;
+    // ===================================================================== Lancer: Sky Strike
+
+    /** Marks a unit hit by the empowered beam and calls a lightning bolt down on it. */
+    private static void callSkyStrike(TurretBuild source, Unit target, Bullet bullet, Color col, AbilityProfile profile){
+        if(target == null || target.dead) return;
+        for(int i = 0; i < skyStrikes.size; i++){
+            SkyStrike existing = skyStrikes.get(i);
+            if(existing.target == target && existing.source == source) return; // already marked
+        }
+
+        SkyStrike s = new SkyStrike();
+        s.team = bullet.team;
+        s.source = source;
+        s.target = target;
+        s.x = target.x;
+        s.y = target.y;
+        s.total = Math.max(8f, profile.strikeDelay * 60f) + Mathf.random(0f, 8f);
+        s.delay = s.total;
+        s.damage = Math.max(10f, bullet.damage * profile.damageMultiplier);
+        s.profile = profile;
+        s.color = col;
+        s.main = true;
+        skyStrikes.add(s);
+    }
+
+    private static void updateSkyStrikes(){
+        for(int i = skyStrikes.size - 1; i >= 0; i--){
+            SkyStrike s = skyStrikes.get(i);
+            s.delay -= Time.delta;
+
+            // main bolts follow their target until they land
+            if(s.main && s.target != null && !s.target.dead && s.target.isAdded()){
+                s.x = Mathf.lerp(s.x, s.target.x + s.target.vel.x * 4f, 0.4f);
+                s.y = Mathf.lerp(s.y, s.target.y + s.target.vel.y * 4f, 0.4f);
+            }
+
+            if(s.delay <= 0f){
+                skyStrikes.remove(i);
+                landSkyStrike(s);
+            }
+        }
+    }
+
+    private static void landSkyStrike(SkyStrike s){
+        final Color col = s.color;
+        final AbilityProfile profile = s.profile;
+        final float dmg = s.damage;
+        final float radius = profile.strikeRadius;
+        final float stunTicks = profile.stunSeconds * 60f;
+
+        AbilityEffectsExtra.skyBolt.at(s.x, s.y, 0f, col);
+        AbilityEffectsExtra.skyImpact.at(s.x, s.y, radius, col);
+        AbilityEffectsExtra.skyScorch.at(s.x, s.y, radius * 0.8f, col);
+        Effect.shake(5f, 12f, s.x, s.y);
+        Sounds.spark.at(s.x, s.y, Mathf.random(0.7f, 0.9f));
+
+        // damage + custom stun (no status effect) for ground enemies inside the blast
+        Units.nearbyEnemies(s.team, s.x, s.y, radius, u -> {
+            if(u == null || u.dead || u.isFlying()) return;
+            u.damage(dmg);
+            stunUnit(u, stunTicks, col);
+        });
+
+        // fire on the ground (never on tiles with your own buildings)
+        for(int i = 0; i < 5; i++){
+            Tile t = Vars.world.tileWorld(s.x + Mathf.range(radius * 0.9f), s.y + Mathf.range(radius * 0.9f));
+            if(t == null) continue;
+            if(t.build != null && t.build.team == s.team) continue;
+            Fires.create(t);
+        }
+
+        // burning ground: custom damage over time, no status effect
+        BurnZone bz = new BurnZone();
+        bz.team = s.team;
+        bz.x = s.x;
+        bz.y = s.y;
+        bz.radius = radius * 1.15f;
+        bz.timer = profile.burnSeconds * 60f;
+        bz.dps = profile.burnDamagePerSecond;
+        bz.color = col;
+        burnZones.add(bz);
+
+        // storm: extra bolts around the main bolt
+        if(s.main && profile.strikeExtraBolts > 0){
+            final Seq<Unit> nearby = new Seq<>();
+            final Unit mainTarget = s.target;
+            Units.nearbyEnemies(s.team, s.x, s.y, profile.strikeExtraRange, u -> {
+                if(u != null && !u.dead && !u.isFlying() && u != mainTarget) nearby.add(u);
+            });
+            nearby.shuffle();
+
+            for(int i = 0; i < profile.strikeExtraBolts; i++){
+                SkyStrike extra = new SkyStrike();
+                extra.team = s.team;
+                extra.source = s.source;
+                extra.profile = profile;
+                extra.color = col;
+                extra.main = false;
+                if(i < nearby.size){
+                    extra.x = nearby.get(i).x;
+                    extra.y = nearby.get(i).y;
+                }else{
+                    extra.x = s.x + Mathf.range(profile.strikeExtraRange * 0.7f);
+                    extra.y = s.y + Mathf.range(profile.strikeExtraRange * 0.7f);
+                }
+                extra.total = 9f + i * 8f + Mathf.random(0f, 5f);
+                extra.delay = extra.total;
+                extra.damage = dmg * profile.strikeExtraFraction;
+                skyStrikes.add(extra);
+            }
+        }
+    }
+
+    /** Custom stun: the unit is pinned in place and its weapons are held in reload. No status effect is used. */
+    private static void stunUnit(Unit u, float ticks, Color col){
+        for(int i = 0; i < stunnedUnits.size; i++){
+            StunnedUnit su = stunnedUnits.get(i);
+            if(su.unit == u){
+                su.timer = Math.max(su.timer, ticks);
                 return;
             }
         }
-        ParalyzedUnit pu = new ParalyzedUnit();
-        pu.unit = u;
-        pu.source = source;
-        pu.firedAtShot = source.totalShots;
-        pu.color = col;
-        paralyzedUnits.add(pu);
+        StunnedUnit su = new StunnedUnit();
+        su.unit = u;
+        su.timer = ticks;
+        su.x = u.x;
+        su.y = u.y;
+        su.color = col;
+        stunnedUnits.add(su);
         AbilityEffects.lancerParalyzeArc.at(u.x, u.y, u.hitSize, col);
     }
 
-    private static void updateParalyzedUnits(){
-        for(int i = paralyzedUnits.size - 1; i >= 0; i--){
-            ParalyzedUnit pu = paralyzedUnits.get(i);
-            pu.timer += Time.delta;
-            if(pu.unit == null || pu.unit.dead){
-                paralyzedUnits.remove(i);
+    private static void updateStunnedUnits(){
+        for(int i = stunnedUnits.size - 1; i >= 0; i--){
+            StunnedUnit su = stunnedUnits.get(i);
+            su.timer -= Time.delta;
+            Unit u = su.unit;
+            if(u == null || u.dead || !u.isAdded() || su.timer <= 0f){
+                stunnedUnits.remove(i);
                 continue;
             }
 
-            boolean sourceCanShootNext = false;
-            if(pu.source == null || !pu.source.isAdded() || pu.source.dead){
-                if(pu.timer >= 180f) sourceCanShootNext = true;
-            }else{
-                Turret t = (Turret)pu.source.block;
-                if(pu.timer > 30f && (pu.source.reloadCounter >= t.reload - 2f || pu.source.totalShots > pu.firedAtShot)){
-                    sourceCanShootNext = true;
-                }
+            u.vel.setZero();
+            u.set(su.x, su.y);
+            for(WeaponMount m : u.mounts){
+                if(m == null || m.weapon == null) continue;
+                m.shoot = false;
+                m.reload = Math.max(m.reload, m.weapon.reload);
             }
 
-            if(sourceCanShootNext || pu.timer >= 540f){
-                if(PierceTurret.lancerParalyzed != null){
-                    pu.unit.unapply(PierceTurret.lancerParalyzed);
-                }
-                paralyzedUnits.remove(i);
-                continue;
-            }
-
-            if(PierceTurret.lancerParalyzed != null){
-                pu.unit.apply(PierceTurret.lancerParalyzed, 30f);
-            }
             if(tickCounter % 7 == 0){
-                AbilityEffects.lancerParalyzeArc.at(pu.unit.x, pu.unit.y, pu.unit.hitSize, pu.color);
+                AbilityEffects.lancerParalyzeArc.at(u.x, u.y, u.hitSize, su.color);
             }
         }
+    }
+
+    private static void updateBurnZones(){
+        for(int i = burnZones.size - 1; i >= 0; i--){
+            BurnZone z = burnZones.get(i);
+            z.timer -= Time.delta;
+            if(z.timer <= 0f){
+                burnZones.remove(i);
+                continue;
+            }
+
+            if(tickCounter % 4 == 0){
+                AbilityEffectsExtra.skyFlame.at(z.x + Mathf.range(z.radius * 0.8f), z.y + Mathf.range(z.radius * 0.8f));
+            }
+
+            z.tick -= Time.delta;
+            if(z.tick <= 0f){
+                z.tick = 15f;
+                final float dmg = z.dps * 0.25f;
+                Units.nearbyEnemies(z.team, z.x, z.y, z.radius, u -> {
+                    if(u != null && !u.dead && !u.isFlying()) u.damage(dmg);
+                });
+            }
+        }
+    }
+
+    private static void drawSkyStrikeWarnings(){
+        for(int i = 0; i < skyStrikes.size; i++){
+            SkyStrike s = skyStrikes.get(i);
+            float f = 1f - Mathf.clamp(s.delay / Math.max(1f, s.total));
+            float r = s.profile.strikeRadius;
+            float pulse = Mathf.absin(Time.time, 3f, 1f);
+
+            // faint light column from the sky
+            Draw.color(s.color, Color.white, f * 0.6f);
+            Draw.alpha(0.12f + f * 0.4f);
+            Lines.stroke(1f + f * 2.5f);
+            Lines.line(s.x, s.y, s.x, s.y + 260f);
+
+            // converging reticle on the ground
+            Draw.alpha(0.5f + 0.5f * f);
+            Lines.stroke(1.6f + f * 1.4f);
+            Lines.circle(s.x, s.y, r * (1.5f - 0.5f * f) + pulse);
+            for(int k = 0; k < 4; k++){
+                float a = k * 90f + 45f;
+                float cr = r * (1.5f - 0.5f * f) + pulse;
+                Lines.lineAngle(s.x + Angles.trnsx(a, cr), s.y + Angles.trnsy(a, cr), a + 180f, 5f);
+            }
+        }
+        Draw.reset();
+    }
+
+    private static void drawStunnedUnits(){
+        for(int i = 0; i < stunnedUnits.size; i++){
+            StunnedUnit su = stunnedUnits.get(i);
+            Unit u = su.unit;
+            if(u == null || u.dead) continue;
+
+            float fade = Mathf.clamp(su.timer / 30f);
+            float r = u.hitSize * 0.6f + 5f;
+
+            Draw.color(su.color, Color.white, 0.35f);
+            Draw.alpha(0.55f * fade);
+            Lines.stroke(1.4f);
+            Lines.circle(u.x, u.y, r + Mathf.absin(Time.time, 4f, 1.5f));
+
+            // sparks orbiting above the head
+            for(int k = 0; k < 3; k++){
+                float a = Time.time * 4f + k * 120f;
+                float sx = u.x + Angles.trnsx(a, r * 0.9f);
+                float sy = u.y + u.hitSize * 0.4f + Angles.trnsy(a, r * 0.35f);
+                Draw.color(Color.white, su.color, 0.4f);
+                Draw.alpha(fade);
+                Fill.circle(sx, sy, 1.6f + Mathf.absin(Time.time + k * 40f, 5f, 0.7f));
+            }
+        }
+        Draw.reset();
+    }
+
+    // ===================================================================== Spectre: Giant Shell
+
+    private static BulletType getGiantShellType(){
+        if(giantShellType != null) return giantShellType;
+        giantShellType = new BasicBulletType(4f, 100f){{
+            lifetime = 90f;
+            hitSize = 15f;
+            width = 1f;
+            height = 1f;
+            collidesAir = true;
+            collidesGround = true;
+            collidesTiles = true;
+            pierce = false;
+            hittable = false;
+            absorbable = false;
+            reflectable = false;
+            trailLength = 0;
+            buildingDamageMultiplier = 0.6f;
+            hitEffect = Fx.none;
+            despawnEffect = Fx.none;
+            shootEffect = Fx.none;
+            smokeEffect = Fx.none;
+        }
+
+            @Override
+            public void draw(Bullet b){
+                Color c = b.data instanceof Color ? (Color)b.data : Color.white;
+                float pulse = 1f + Mathf.absin(Time.time, 4f, 0.12f);
+                float r = 13f * pulse;
+                float ang = b.rotation();
+
+                Draw.color(c);
+                Draw.alpha(0.28f);
+                Fill.circle(b.x, b.y, r * 1.9f);
+                Draw.alpha(0.55f);
+                Fill.circle(b.x, b.y, r * 1.25f);
+                Draw.color(Color.white, c, 0.25f);
+                Fill.circle(b.x, b.y, r);
+                Draw.color(Color.white);
+                Fill.circle(b.x, b.y, r * 0.55f);
+
+                Draw.color(c);
+                Lines.stroke(2f);
+                Lines.circle(b.x, b.y, r * 1.55f + Mathf.absin(Time.time, 5f, 2f));
+
+                Draw.alpha(0.5f);
+                Drawf.tri(b.x - Angles.trnsx(ang, r * 0.9f), b.y - Angles.trnsy(ang, r * 0.9f), r * 1.2f, r * 2.6f, ang + 180f);
+                Draw.reset();
+            }
+
+            @Override
+            public void hit(Bullet b, float x, float y){
+                super.hit(b, x, y);
+                burstGiantShell(b, x, y);
+            }
+
+            @Override
+            public void despawned(Bullet b){
+                super.despawned(b);
+                burstGiantShell(b, b.x, b.y);
+            }
+        };
+        return giantShellType;
+    }
+
+    private static BulletType getGiantBurstType(){
+        if(giantBurstType != null) return giantBurstType;
+        giantBurstType = new BasicBulletType(5.2f, 10f){{
+            lifetime = 15f;
+            width = 1f;
+            height = 1f;
+            collides = false;
+            collidesTiles = false;
+            collidesGround = false;
+            collidesAir = false;
+            hittable = false;
+            absorbable = false;
+            reflectable = false;
+            trailLength = 0;
+            hitEffect = Fx.none;
+            despawnEffect = Fx.none;
+            shootEffect = Fx.none;
+            smokeEffect = Fx.none;
+        }
+
+            @Override
+            public void draw(Bullet b){
+                Color c = b.data instanceof Color ? (Color)b.data : Color.white;
+                float a = b.rotation();
+                Draw.color(c);
+                Draw.alpha(0.5f);
+                Fill.circle(b.x, b.y, 5.5f * b.fout() + 1.5f);
+                Draw.color(Color.white, c, 0.2f);
+                Drawf.tri(b.x, b.y, 4f, 11f, a);
+                Drawf.tri(b.x, b.y, 3.5f, 9f, a + 180f);
+                Draw.reset();
+            }
+
+            @Override
+            public void despawned(Bullet b){
+                super.despawned(b);
+                blastBurstBullet(b);
+            }
+        };
+        return giantBurstType;
+    }
+
+    /** Muzzle point in the middle of the barrels (turret centre, pushed out along its rotation). */
+    private static float giantMuzzleX(TurretBuild tb){
+        float len = 0f;
+        if(tb.block instanceof Turret){
+            Turret t = (Turret)tb.block;
+            len = t.shootY > 0f ? t.shootY : t.size * 4f;
+        }
+        return tb.x + Angles.trnsx(tb.rotation, len);
+    }
+
+    private static float giantMuzzleY(TurretBuild tb){
+        float len = 0f;
+        if(tb.block instanceof Turret){
+            Turret t = (Turret)tb.block;
+            len = t.shootY > 0f ? t.shootY : t.size * 4f;
+        }
+        return tb.y + Angles.trnsy(tb.rotation, len);
+    }
+
+    /** The normal bullet is removed; a charge orb grows between the barrels, then the giant shell launches. */
+    private static void spawnGiantShell(TurretBuild tb, Bullet b, AbilityProfile profile, Color col){
+        float range = tb.block instanceof Turret ? ((Turret)tb.block).range : 380f;
+        float travel = Math.min(Math.max(b.lifetime * b.vel.len(), 90f), range * 1.05f);
+        float speed = Mathf.clamp(b.vel.len() * 0.6f, 2.6f, 4.8f);
+
+        GiantCharge gc = new GiantCharge();
+        gc.source = tb;
+        gc.profile = profile;
+        gc.color = col;
+        gc.total = 32f;
+        gc.timer = gc.total;
+        gc.damage = b.damage * profile.damageMultiplier;
+        gc.speed = speed;
+        gc.life = Math.max(20f, travel / speed);
+        giantCharges.add(gc);
+
+        // remove the normal bullet without playing its despawn effects / fragments at the muzzle
+        b.hit = true;
+        b.remove();
+
+        Sounds.shootBig.at(giantMuzzleX(tb), giantMuzzleY(tb), 0.6f);
+    }
+
+    private static void updateGiantCharges(){
+        for(int i = giantCharges.size - 1; i >= 0; i--){
+            GiantCharge gc = giantCharges.get(i);
+            TurretBuild tb = gc.source;
+            if(tb == null || !tb.isValid()){
+                giantCharges.remove(i);
+                continue;
+            }
+            gc.timer -= Time.delta;
+            float mx = giantMuzzleX(tb);
+            float my = giantMuzzleY(tb);
+
+            if(Mathf.chance(0.6f * Time.delta)){
+                float a = Mathf.random(360f);
+                float d = 20f + Mathf.random(14f);
+                AbilityEffects.overdriveTrigger.at(mx + Angles.trnsx(a, d), my + Angles.trnsy(a, d), gc.color);
+            }
+
+            if(gc.timer <= 0f){
+                giantCharges.remove(i);
+                launchGiantShell(gc, mx, my);
+            }
+        }
+    }
+
+    private static void launchGiantShell(GiantCharge gc, float x, float y){
+        TurretBuild tb = gc.source;
+        BulletType type = getGiantShellType();
+        float ang = tb.rotation;
+
+        Bullet shell = type.create(tb, tb.team, x, y, ang, gc.damage,
+            gc.speed / type.speed, gc.life / type.lifetime, gc.color);
+        if(shell == null) return;
+
+        processedBullets.add(shell.id);
+        activeEmpoweredBullets.add(shell.id);
+        giantShellBullets.add(shell.id);
+        bulletOwners.put(shell.id, gc.profile);
+
+        AbilityEffectsExtra.shellBlast.at(x, y, 0f, gc.color);
+        Effect.shake(3.5f, 9f, x, y);
+        Sounds.shootBig.at(x, y, 0.8f);
+    }
+
+    private static void drawGiantCharges(){
+        for(int i = 0; i < giantCharges.size; i++){
+            GiantCharge gc = giantCharges.get(i);
+            TurretBuild tb = gc.source;
+            if(tb == null || !tb.isValid()) continue;
+            float f = 1f - Mathf.clamp(gc.timer / gc.total);
+            float x = giantMuzzleX(tb);
+            float y = giantMuzzleY(tb);
+            float r = 3f + 11f * f;
+            float pulse = 1f + Mathf.absin(Time.time, 3f, 0.15f);
+
+            Draw.color(gc.color);
+            Draw.alpha(0.25f + 0.25f * f);
+            Fill.circle(x, y, r * 1.9f * pulse);
+            Draw.alpha(0.6f);
+            Fill.circle(x, y, r * 1.25f * pulse);
+            Draw.color(Color.white, gc.color, 0.3f);
+            Fill.circle(x, y, r * pulse);
+            Draw.color(Color.white);
+            Fill.circle(x, y, r * 0.5f);
+
+            // converging rings and sparks pulled into the orb
+            Draw.color(gc.color);
+            Lines.stroke(1.5f + f);
+            Lines.circle(x, y, 8f + 34f * (1f - f));
+            for(int k = 0; k < 4; k++){
+                float a = Time.time * 6f + k * 90f;
+                float d = 10f + 28f * (1f - f);
+                Lines.lineAngle(x + Angles.trnsx(a, d), y + Angles.trnsy(a, d), a + 180f, 4f + 6f * f);
+            }
+            Drawf.light(x, y, 50f + 60f * f, gc.color, 0.7f);
+        }
+        Draw.reset();
+    }
+
+    /** The giant shell detonates: big shockwave, then a ring of explosive bullets flies outward. */
+    private static void burstGiantShell(Bullet b, final float x, final float y){
+        if(giantBurstDone.contains(b.id)) return;
+        giantBurstDone.add(b.id);
+        giantShellBullets.remove(b.id);
+        activeEmpoweredBullets.remove(b.id);
+
+        AbilityProfile profile = bulletOwners.get(b.id);
+        if(profile == null) return;
+        Color col = b.data instanceof Color ? (Color)b.data : profile.accentColor;
+
+        AbilityEffectsExtra.giantShellBlast.at(x, y, 0f, col);
+        Effect.shake(6f, 14f, x, y);
+        Sounds.shootBig.at(x, y, 0.55f);
+
+        // central shockwave: damage, knockback and the ability's status
+        Damage.damage(b.team, x, y, 56f, b.damage * 0.4f, true, true);
+        final StatusEffect st = profile.resolvedPrimaryStatus;
+        final float dur = profile.primaryStatusDuration * 60f;
+        Units.nearbyEnemies(b.team, x, y, 56f, u -> {
+            if(u == null || u.dead) return;
+            if(st != null) u.apply(st, dur);
+            float a = Angles.angle(x, y, u.x, u.y);
+            u.impulse(Angles.trnsx(a, 160f), Angles.trnsy(a, 160f));
+        });
+
+        // ring of explosive bullets
+        BulletType type = getGiantBurstType();
+        int count = Math.max(4, profile.burstCount);
+        float base = b.damage / Math.max(0.01f, profile.damageMultiplier);
+        float dmg = Math.max(8f, base * profile.burstDamageFraction);
+        float offset = Mathf.random(360f);
+        for(int i = 0; i < count; i++){
+            float ang = offset + i * (360f / count) + Mathf.range(6f);
+            Bullet fb = type.create(b.owner, b.team, x + Angles.trnsx(ang, 6f), y + Angles.trnsy(ang, 6f), ang, dmg,
+                Mathf.random(0.8f, 1.25f), Mathf.random(0.85f, 1.15f), col);
+            if(fb != null) processedBullets.add(fb.id);
+        }
+    }
+
+    private static void blastBurstBullet(Bullet b){
+        Color c = b.data instanceof Color ? (Color)b.data : Color.white;
+        final float bx = b.x;
+        final float by = b.y;
+        AbilityEffectsExtra.shellBlast.at(bx, by, 0f, c);
+        Damage.damage(b.team, bx, by, 34f, b.damage, true, true);
+        Units.nearbyEnemies(b.team, bx, by, 34f, u -> {
+            if(u == null || u.dead) return;
+            float a = Angles.angle(bx, by, u.x, u.y);
+            u.impulse(Angles.trnsx(a, 70f), Angles.trnsy(a, 70f));
+        });
     }
 
     private static void runCycloneRicochet(Team team, Unit firstHit, Bullet bullet, AbilityProfile profile){
@@ -1886,24 +2387,10 @@ public class AbilityManager{
             }
         }
 
-        Draw.z(Layer.bullet + 0.05f);
-        for(Bullet b : Groups.bullet){
-            if(b == null || !b.isAdded() || !giantShellBullets.contains(b.id)) continue;
-            AbilityProfile owner = bulletOwners.get(b.id);
-            Color col = getBulletColor(b, owner != null ? owner : new AbilityProfile());
-            float ang = b.rotation();
-            Draw.color(col);
-            Draw.alpha(0.55f);
-            Fill.circle(b.x, b.y, 13f);
-            Drawf.tri(b.x + Angles.trnsx(ang, 10f), b.y + Angles.trnsy(ang, 10f), 11f, 20f, ang);
-            Drawf.tri(b.x - Angles.trnsx(ang, 6f), b.y - Angles.trnsy(ang, 6f), 9f, 16f, ang + 180f);
-            Draw.color(Color.white);
-            Fill.circle(b.x, b.y, 6f);
-            Drawf.tri(b.x + Angles.trnsx(ang, 7f), b.y + Angles.trnsy(ang, 7f), 5.5f, 12f, ang);
-            Draw.color();
-        }
-
         Draw.z(Layer.effect);
+        drawGiantCharges();
+        drawSkyStrikeWarnings();
+        drawStunnedUnits();
 
         for(int i = 0; i < markedUnits.size; i++){
             MarkedUnit mu = markedUnits.get(i);
@@ -2102,6 +2589,11 @@ public class AbilityManager{
         delayedBomblets.clear();
         markedUnits.clear();
         paralyzedUnits.clear();
+        skyStrikes.clear();
+        giantCharges.clear();
+        stunnedUnits.clear();
+        burnZones.clear();
+        giantBurstDone.clear();
         spinningUnits.clear();
         tidalWaves.clear();
         trackedEnemyBullets.clear();
@@ -2175,6 +2667,35 @@ public class AbilityManager{
         Color color;
     }
 
+    private static class SkyStrike{
+        Team team;
+        TurretBuild source;
+        Unit target;
+        AbilityProfile profile;
+        Color color;
+        float x, y, delay, total, damage;
+        boolean main;
+    }
+
+    private static class GiantCharge{
+        TurretBuild source;
+        AbilityProfile profile;
+        Color color;
+        float timer, total, damage, speed, life;
+    }
+
+    private static class StunnedUnit{
+        Unit unit;
+        Color color;
+        float x, y, timer;
+    }
+
+    private static class BurnZone{
+        Team team;
+        Color color;
+        float x, y, radius, timer, tick, dps;
+    }
+
     private static class SpinningUnit{
         Unit unit;
         float timer;
@@ -2195,4 +2716,4 @@ public class AbilityManager{
         int ownerId;
         int lastSeenTick;
     }
-            }
+}

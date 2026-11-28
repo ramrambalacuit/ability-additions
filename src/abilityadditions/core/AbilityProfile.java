@@ -88,6 +88,30 @@ public class AbilityProfile{
     public int deadEyeShots = 5;
     public float deadEyeInterval = 3.2f;
 
+    // Lancer: Sky Strike (lightning from above, custom stun, burning ground)
+    /** Seconds enemies in the bolt radius stay stunned (custom stun, no status effect). */
+    public float stunSeconds = 5f;
+    /** Seconds between the beam hitting a unit and the bolt landing (warning time). */
+    public float strikeDelay = 0.45f;
+    /** Blast radius of each bolt, in world units. */
+    public float strikeRadius = 34f;
+    /** Extra storm bolts dropped near each struck unit. */
+    public int strikeExtraBolts = 2;
+    /** How far from the main bolt the extra bolts may land. */
+    public float strikeExtraRange = 80f;
+    /** Damage of an extra bolt as a fraction of the main bolt. */
+    public float strikeExtraFraction = 0.4f;
+    /** Seconds the scorched ground keeps burning enemies. */
+    public float burnSeconds = 4f;
+    /** Damage per second dealt to enemies standing in the burning ground. */
+    public float burnDamagePerSecond = 40f;
+
+    // Spectre: Giant Shell (big orb that bursts into explosive bullets)
+    /** Number of explosive bullets in the burst ring. */
+    public int burstCount = 10;
+    /** Damage of each burst bullet explosion as a fraction of the normal shot damage. */
+    public float burstDamageFraction = 0.4f;
+
     public StatusEffect resolvedPrimaryStatus;
     public StatusEffect resolvedSecondaryStatus;
     public StatusEffect resolvedTertiaryStatus;
