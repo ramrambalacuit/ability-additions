@@ -119,10 +119,19 @@ public class SerpuloTurretAbilities{
         register(Blocks.lancer, new AbilityProfile(){{
             id = AbilityId.LANCER_ARC_PARALYSIS;
             turretName = "lancer";
-            abilityName = "Arc Paralysis";
-            description = "Every 3rd beam doesn't just hurt, it shuts enemies down. Every unit it hits is paralyzed: movement and weapons frozen, sprites darkened and crackling with lightning, until Lancer is ready to fire again.";
+            abilityName = "Sky Strike";
+            description = "Every 3rd beam marks its targets for the sky. A moment later lightning crashes down on every unit it hit, with storm bolts landing nearby. The strike scorches the ground, sets it on fire and stuns enemies in the blast for 5 seconds.";
             accentColor = Color.valueOf("a9d8ff");
             trigger = AbilityTrigger.everyNShots(3, 0f);
+            damageMultiplier = 0.6f;
+            stunSeconds = 5f;
+            strikeDelay = 0.45f;
+            strikeRadius = 34f;
+            strikeExtraBolts = 2;
+            strikeExtraRange = 80f;
+            strikeExtraFraction = 0.4f;
+            burnSeconds = 4f;
+            burnDamagePerSecond = 40f;
         }});
 
         // 8. Ripple (3x3) - Carpet Bomblets
@@ -272,12 +281,14 @@ public class SerpuloTurretAbilities{
             id = AbilityId.SPECTRE_SINGULARITY_ORB;
             turretName = "spectre";
             abilityName = "Giant Shell";
-            description = "Fifteen shots to load one very bad idea. Every 15th shot fires a colossal mega-shell in your ammo's color for 5x damage, with a heavy shockwave splash, hard knockback and a Tier-3 armor-piercing status.";
+            description = "Fifteen shots to load one very bad idea. Every 15th shot charges a glowing orb between the barrels, then launches it for 4x damage. It bursts into a ring of explosive bullets, with a heavy shockwave, hard knockback and a Tier-3 armor-piercing status.";
             accentColor = Color.valueOf("ffba70");
             trigger = AbilityTrigger.everyNShots(15, 0f);
             chargeDuration = 0f;
             meltdownDuration = 0f;
-            damageMultiplier = 5.0f;
+            damageMultiplier = 4.0f;
+            burstCount = 10;
+            burstDamageFraction = 0.4f;
             primaryStatusEffect = "mov-armor-piercing-tier-3";
             primaryStatusDuration = 4f;
         }});
@@ -323,10 +334,10 @@ public class SerpuloTurretAbilities{
                 id = AbilityId.PIERCE_DEAD_EYE;
                 turretName = "pierce";
                 abilityName = "Dead Eye";
-                description = "Time slows, targets get marked. After 5 confirmed unit hits, Pierce stamps X-marks on random enemies in range, then fires 5 near-instant piercing hypershots for 3.2x damage each, glowing in your ammo's color.";
+                description = "Time slows, targets get marked. After 5 confirmed unit hits, Pierce stamps X-marks on random enemies in range, then fires 5 near-instant piercing hypershots for 2.2x damage each. With no enemies around, unused shots are saved for later.";
                 accentColor = Color.valueOf("ff6b57");
                 trigger = AbilityTrigger.confirmedUnitHits(5);
-                damageMultiplier = 3.2f;
+                damageMultiplier = 2.2f;
                 deadEyeShots = 5;
                 deadEyeInterval = 3.0f;
             }});
@@ -338,4 +349,4 @@ public class SerpuloTurretAbilities{
         all.add(profile);
         AbilityManager.register(block, profile);
     }
-                                                     }
+}
